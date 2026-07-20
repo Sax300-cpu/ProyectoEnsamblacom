@@ -1,5 +1,6 @@
 import { Routes, Route, Link } from 'react-router-dom';
 import { Products } from './pages/Products';
+import { Configuration } from './pages/Configuration';
 
 function App() {
   return (
@@ -8,6 +9,7 @@ function App() {
         <div className="flex gap-6 max-w-6xl mx-auto font-semibold">
           <Link to="/" className="hover:text-blue-200 transition-colors">Inicio</Link>
           <Link to="/products" className="hover:text-blue-200 transition-colors">Inventario</Link>
+          <Link to="/configuracion" className="hover:text-blue-200 transition-colors">⚙️ Configuración</Link>
         </div>
       </nav>
 
@@ -15,6 +17,7 @@ function App() {
         <Routes>
           <Route path="/" element={<h1 className="text-3xl font-bold text-gray-700">Bienvenido al Sistema de Inventario</h1>} />
           <Route path="/products" element={<Products />} />
+          <Route path="/configuracion" element={<Configuration />} />
         </Routes>
       </main>
     </div>
