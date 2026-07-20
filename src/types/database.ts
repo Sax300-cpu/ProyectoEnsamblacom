@@ -28,21 +28,29 @@ export interface Distribuidor {
 
 export interface Repuesto {
   id_repuesto: number
-  id_modelo: number
   id_categoria: number
   id_distribuidor: number
   stock: number
   costo_distribuidor: number
   precio_tecnico: number
   precio_cliente: number
+  atributos: Record<string, unknown>
   created_at: string
   updated_at: string
 }
 
+export interface RepuestoCompatibilidad {
+  id_repuesto: number
+  id_modelo: number
+}
+
 export interface RepuestoConRelaciones extends Repuesto {
-  modelos: Pick<Modelo, 'id_modelo' | 'nombre'> & {
-    marcas: Pick<Marca, 'id_marca' | 'nombre'>
-  }
+  repuestos_compatibilidad: {
+    id_modelo: number
+    modelos: Pick<Modelo, 'id_modelo' | 'nombre'> & {
+      marcas: Pick<Marca, 'id_marca' | 'nombre'>
+    }
+  }[]
   categorias: Pick<Categoria, 'id_categoria' | 'nombre'>
   distribuidores: Pick<Distribuidor, 'id_distribuidor' | 'nombre'>
 }

@@ -2,7 +2,14 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import type { RepuestoConRelaciones } from '../types/database'
 
-export function InventoryTable() {
+interface Props {
+  seccion: 'pantallas' | 'otros'
+  buscar: string
+}
+
+const CATEGORIA_PANTALLAS = 1
+
+export function InventoryTable({ seccion, buscar }: Props) {
   const [repuestos, setRepuestos] = useState<RepuestoConRelaciones[]>([])
   const [cargando, setCargando] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -16,12 +23,15 @@ export function InventoryTable() {
         .from('repuestos')
         .select(`
           *,
-          modelos!inner (
+          repuestos_compatibilidad (
             id_modelo,
-            nombre,
-            marcas!inner (
-              id_marca,
-              nombre
+            modelos (
+              id_modelo,
+              nombre,
+              marcas (
+                id_marca,
+                nombre
+              )
             )
           ),
           categorias!inner (
@@ -33,6 +43,7 @@ export function InventoryTable() {
             nombre
           )
         `)
+        .filter('id_categoria', seccion === 'pantallas' ? 'eq' : 'neq', CATEGORIA_PANTALLAS)
         .order('id_repuesto', { ascending: true })
 
       if (error) {
@@ -46,7 +57,21 @@ export function InventoryTable() {
     }
 
     obtenerRepuestos()
-  }, [])
+  }, [seccion])
+
+  const filtrados = repuestos.filter((r) => {
+    if (!buscar) return true
+    const q = buscar.toLowerCase()
+    return (
+      r.repuestos_compatibilidad.some((rc) =>
+        rc.modelos.nombre.toLowerCase().includes(q),
+      ) ||
+      r.repuestos_compatibilidad.some((rc) =>
+        rc.modelos.marcas.nombre.toLowerCase().includes(q),
+      ) ||
+      r.categorias.nombre.toLowerCase().includes(q)
+    )
+  })
 
   if (cargando) {
     return (
@@ -70,7 +95,7 @@ export function InventoryTable() {
     )
   }
 
-  if (repuestos.length === 0) {
+  if (filtrados.length === 0) {
     return (
       <div className="text-center py-12 text-slate-500 text-sm">
         No hay repuestos registrados.
@@ -87,43 +112,99 @@ export function InventoryTable() {
             <th className="text-left px-4 py-3 font-semibold">Marca</th>
             <th className="text-left px-4 py-3 font-semibold">Modelo</th>
             <th className="text-left px-4 py-3 font-semibold">Distribuidor</th>
+            <th className="text-left px-4 py-3 font-semibold">Detalles</th>
             <th className="text-right px-4 py-3 font-semibold">Stock</th>
             <th className="text-right px-4 py-3 font-semibold">Costo</th>
             <th className="text-right px-4 py-3 font-semibold">Precio Técnico</th>
             <th className="text-right px-4 py-3 font-semibold">Precio Cliente</th>
+            <th className="text-center px-4 py-3 font-semibold">Acciones</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-200">
-          {repuestos.map((r) => (
-            <tr key={r.id_repuesto} className="hover:bg-slate-50 transition-colors">
-              <td className="px-4 py-3 text-slate-700">{r.categorias.nombre}</td>
-              <td className="px-4 py-3 text-slate-700">{r.modelos.marcas.nombre}</td>
-              <td className="px-4 py-3 text-slate-700 font-medium">{r.modelos.nombre}</td>
-              <td className="px-4 py-3 text-slate-700">{r.distribuidores.nombre}</td>
-              <td className="px-4 py-3 text-right">
-                <span
-                  className={`inline-block min-w-[2rem] rounded-full px-2 py-0.5 text-xs font-semibold ${
-                    r.stock <= 5
-                      ? 'bg-red-100 text-red-700'
-                      : r.stock <= 15
-                      ? 'bg-amber-100 text-amber-700'
-                      : 'bg-green-100 text-green-700'
-                  }`}
-                >
-                  {r.stock}
-                </span>
-              </td>
-              <td className="px-4 py-3 text-right text-slate-700 font-mono">
-                 {r.costo_distribuidor.toFixed(2)}
-              </td>
-              <td className="px-4 py-3 text-right text-slate-700 font-mono">
-                 {r.precio_tecnico.toFixed(2)}
-              </td>
-              <td className="px-4 py-3 text-right text-slate-700 font-mono">
-                 {r.precio_cliente.toFixed(2)}
-              </td>
-            </tr>
-          ))}
+          {filtrados.map((r) => {
+            const marcaNombre =
+              r.repuestos_compatibilidad[0]?.modelos.marcas.nombre ?? '—'
+
+            return (
+              <tr key={r.id_repuesto} className="hover:bg-slate-50 transition-colors">
+                <td className="px-4 py-3 text-slate-700">{r.categorias.nombre}</td>
+                <td className="px-4 py-3 text-slate-700">{marcaNombre}</td>
+                <td className="px-4 py-3 text-slate-700">
+                  <div className="flex flex-wrap gap-1">
+                    {r.repuestos_compatibilidad.map((rc) => (
+                      <span
+                        key={rc.id_modelo}
+                        className="inline-block rounded-md bg-indigo-100 text-indigo-700 px-2 py-0.5 text-xs font-medium"
+                      >
+                        {rc.modelos.nombre}
+                      </span>
+                    ))}
+                  </div>
+                </td>
+                <td className="px-4 py-3 text-slate-700">{r.distribuidores.nombre}</td>
+                <td className="px-4 py-3">
+                  <div className="flex flex-wrap gap-1">
+                    {Object.entries(r.atributos ?? {}).flatMap(([key, val]) => {
+                      if (typeof val === 'boolean') {
+                        if (!val) return []
+                        const label =
+                          key === 'con_bisel' ? 'Con Bisel' :
+                          key === 'vidrio_camara' ? 'Con Vidrio' :
+                          key
+                        return [(
+                          <span key={key} className="inline-block rounded-md bg-slate-100 text-slate-600 px-2 py-0.5 text-xs">
+                            {label}
+                          </span>
+                        )]
+                      }
+                      if (key === 'calidad' || key === 'color') {
+                        return [(
+                          <span key={key} className="inline-block rounded-md bg-slate-100 text-slate-600 px-2 py-0.5 text-xs uppercase">
+                            {String(val)}
+                          </span>
+                        )]
+                      }
+                      return [(
+                        <span key={key} className="inline-block rounded-md bg-slate-100 text-slate-600 px-2 py-0.5 text-xs">
+                          {key}: {String(val)}
+                        </span>
+                      )]
+                    })}
+                  </div>
+                </td>
+                <td className="px-4 py-3 text-right">
+                  <span
+                    className={`inline-block min-w-[2rem] rounded-full px-2 py-0.5 text-xs font-semibold ${
+                      r.stock <= 5
+                        ? 'bg-red-100 text-red-700'
+                        : r.stock <= 15
+                        ? 'bg-amber-100 text-amber-700'
+                        : 'bg-green-100 text-green-700'
+                    }`}
+                  >
+                    {r.stock}
+                  </span>
+                </td>
+                <td className="px-4 py-3 text-right text-slate-700 font-mono">
+                  {r.costo_distribuidor.toFixed(2)}
+                </td>
+                <td className="px-4 py-3 text-right text-slate-700 font-mono">
+                  {r.precio_tecnico.toFixed(2)}
+                </td>
+                <td className="px-4 py-3 text-right text-slate-700 font-mono">
+                  {r.precio_cliente.toFixed(2)}
+                </td>
+                <td className="px-4 py-3 text-center">
+                  <button
+                    onClick={() => console.log('Vender repuesto id:', r.id_repuesto)}
+                    className="rounded-md bg-emerald-600 px-3 py-1 text-xs font-semibold text-white hover:bg-emerald-700 transition-colors cursor-pointer"
+                  >
+                    Vender
+                  </button>
+                </td>
+              </tr>
+            )
+          })}
         </tbody>
       </table>
     </div>
