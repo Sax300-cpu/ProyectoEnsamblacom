@@ -1,17 +1,24 @@
-import { Routes, Route } from 'react-router-dom'
-import { Layout } from './components/Layout'
-import { Dashboard } from './pages/Dashboard'
-import { Products } from './pages/Products'
+import { Routes, Route, Link } from 'react-router-dom';
+import { Products } from './pages/Products';
 
 function App() {
   return (
-    <Routes>
-      <Route element={<Layout />}>
-        <Route index element={<Dashboard />} />
-        <Route path="products" element={<Products />} />
-      </Route>
-    </Routes>
-  )
+    <div className="min-h-screen bg-gray-50">
+      <nav className="bg-blue-700 p-4 text-white shadow-md">
+        <div className="flex gap-6 max-w-6xl mx-auto font-semibold">
+          <Link to="/" className="hover:text-blue-200 transition-colors">Inicio</Link>
+          <Link to="/products" className="hover:text-blue-200 transition-colors">Inventario</Link>
+        </div>
+      </nav>
+
+      <main className="max-w-6xl mx-auto mt-8 bg-white p-6 rounded-lg shadow-sm">
+        <Routes>
+          <Route path="/" element={<h1 className="text-3xl font-bold text-gray-700">Bienvenido al Sistema de Inventario</h1>} />
+          <Route path="/products" element={<Products />} />
+        </Routes>
+      </main>
+    </div>
+  );
 }
 
-export default App
+export default App;
