@@ -2,7 +2,14 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import type { RepuestoConRelaciones } from '../types/database'
 
-export function InventoryTable() {
+interface Props {
+  seccion: 'pantallas' | 'otros'
+  buscar: string
+}
+
+const CATEGORIA_PANTALLAS = 1
+
+export function InventoryTable({ seccion, buscar }: Props) {
   const [repuestos, setRepuestos] = useState<RepuestoConRelaciones[]>([])
   const [cargando, setCargando] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -33,6 +40,7 @@ export function InventoryTable() {
             nombre
           )
         `)
+        .filter('id_categoria', seccion === 'pantallas' ? 'eq' : 'neq', CATEGORIA_PANTALLAS)
         .order('id_repuesto', { ascending: true })
 
       if (error) {
@@ -46,7 +54,17 @@ export function InventoryTable() {
     }
 
     obtenerRepuestos()
-  }, [])
+  }, [seccion])
+
+  const filtrados = repuestos.filter((r) => {
+    if (!buscar) return true
+    const q = buscar.toLowerCase()
+    return (
+      r.modelos.nombre.toLowerCase().includes(q) ||
+      r.modelos.marcas.nombre.toLowerCase().includes(q) ||
+      r.categorias.nombre.toLowerCase().includes(q)
+    )
+  })
 
   if (cargando) {
     return (
@@ -70,7 +88,7 @@ export function InventoryTable() {
     )
   }
 
-  if (repuestos.length === 0) {
+  if (filtrados.length === 0) {
     return (
       <div className="text-center py-12 text-slate-500 text-sm">
         No hay repuestos registrados.
@@ -91,10 +109,11 @@ export function InventoryTable() {
             <th className="text-right px-4 py-3 font-semibold">Costo</th>
             <th className="text-right px-4 py-3 font-semibold">Precio Técnico</th>
             <th className="text-right px-4 py-3 font-semibold">Precio Cliente</th>
+            <th className="text-center px-4 py-3 font-semibold">Acciones</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-200">
-          {repuestos.map((r) => (
+          {filtrados.map((r) => (
             <tr key={r.id_repuesto} className="hover:bg-slate-50 transition-colors">
               <td className="px-4 py-3 text-slate-700">{r.categorias.nombre}</td>
               <td className="px-4 py-3 text-slate-700">{r.modelos.marcas.nombre}</td>
@@ -114,13 +133,21 @@ export function InventoryTable() {
                 </span>
               </td>
               <td className="px-4 py-3 text-right text-slate-700 font-mono">
-                 {r.costo_distribuidor.toFixed(2)}
+                S/ {r.costo_distribuidor.toFixed(2)}
               </td>
               <td className="px-4 py-3 text-right text-slate-700 font-mono">
-                 {r.precio_tecnico.toFixed(2)}
+                S/ {r.precio_tecnico.toFixed(2)}
               </td>
               <td className="px-4 py-3 text-right text-slate-700 font-mono">
-                 {r.precio_cliente.toFixed(2)}
+                S/ {r.precio_cliente.toFixed(2)}
+              </td>
+              <td className="px-4 py-3 text-center">
+                <button
+                  onClick={() => console.log('Vender repuesto id:', r.id_repuesto)}
+                  className="rounded-md bg-emerald-600 px-3 py-1 text-xs font-semibold text-white hover:bg-emerald-700 transition-colors cursor-pointer"
+                >
+                  Vender
+                </button>
               </td>
             </tr>
           ))}
