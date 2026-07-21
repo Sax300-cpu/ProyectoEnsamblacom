@@ -11,29 +11,85 @@ const tabs: { key: Tab; label: string }[] = [
   { key: 'distribuidores', label: 'Distribuidores' },
 ]
 
-function TabCategorias() {
-  const [items, setItems] = useState<Categoria[]>([])
-  const [nombre, setNombre] = useState('')
+/* ───── hook reutilizable para formulario de inserción/edición + tabla ───── */
+function useCatalog<T extends object>(
+  table: string,
+  fetchQuery: () => Promise<T[]>,
+  insertPayload: (form: Partial<T>) => Record<string, unknown>,
+  updatePayload: (form: Partial<T>) => Record<string, unknown>,
+) {
+  const [items, setItems] = useState<T[]>([])
+  const [editando, setEditando] = useState<T | null>(null)
   const [cargando, setCargando] = useState(false)
+  const [form, setForm] = useState<Partial<T>>({})
 
   const cargar = async () => {
-    const { data } = await supabase.from('categorias').select('*').order('nombre')
-    if (data) setItems(data as Categoria[])
+    const data = await fetchQuery()
+    setItems(data)
   }
 
   useEffect(() => { cargar() }, [])
 
-  const agregar = async () => {
-    const v = nombre.trim()
-    if (!v) return
+  const resetForm = () => {
+    setForm({})
+    setEditando(null)
+  }
+
+  const toRecord = (obj: T): Record<string, unknown> => obj as unknown as Record<string, unknown>
+
+  const getIdKey = (obj: T): string =>
+    Object.keys(obj).find(k => k.startsWith('id_')) as string
+
+  const handleSubmit = async () => {
     setCargando(true)
-    const { error } = await supabase.from('categorias').insert({ nombre: v })
+    let error
+    if (editando) {
+      const rec = toRecord(editando)
+      const idKey = getIdKey(editando)
+      ;({ error } = await supabase.from(table).update(updatePayload(form)).eq(idKey, rec[idKey]))
+    } else {
+      ;({ error } = await supabase.from(table).insert(insertPayload(form)))
+    }
     setCargando(false)
     if (!error) {
-      setNombre('')
+      resetForm()
       cargar()
     }
   }
+
+  const handleEdit = (item: T) => {
+    setForm({ ...item })
+    setEditando(item)
+  }
+
+  const handleDelete = async (item: T) => {
+    const rec = toRecord(item)
+    const idKey = getIdKey(item)
+    const idVal = rec[idKey]
+    const name = (rec.nombre as string) ?? ''
+    if (!window.confirm(`¿Eliminar "${name}"?`)) return
+    const { error } = await supabase.from(table).delete().eq(idKey, idVal)
+    if (!error) {
+      const editRec = editando ? toRecord(editando) : null
+      if (editRec && editRec[idKey] === idVal) resetForm()
+      cargar()
+    }
+  }
+
+  return { items, form, setForm, editando, cargando, handleSubmit, handleEdit, handleDelete, resetForm }
+}
+
+/* ───── Categorías ───── */
+function TabCategorias() {
+  const { items, form, setForm, editando, cargando, handleSubmit, handleEdit, handleDelete, resetForm } = useCatalog<Categoria>(
+    'categorias',
+    async () => {
+      const { data } = await supabase.from('categorias').select('*').order('nombre')
+      return (data ?? []) as Categoria[]
+    },
+    (f) => ({ nombre: (f.nombre ?? '').trim() }),
+    (f) => ({ nombre: (f.nombre ?? '').trim() }),
+  )
 
   return (
     <div>
@@ -41,23 +97,32 @@ function TabCategorias() {
         <input
           type="text"
           placeholder="Nombre de la categoría"
-          value={nombre}
-          onChange={(e) => setNombre(e.target.value)}
+          value={(form.nombre as string) ?? ''}
+          onChange={(e) => setForm((p) => ({ ...p, nombre: e.target.value }))}
           className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
         />
         <button
-          onClick={agregar}
-          disabled={cargando || !nombre.trim()}
+          onClick={handleSubmit}
+          disabled={cargando || !(form.nombre as string)?.trim()}
           className="rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-50 transition-colors cursor-pointer shrink-0"
         >
-          {cargando ? '…' : 'Agregar'}
+          {cargando ? '…' : editando ? 'Actualizar' : 'Agregar'}
         </button>
+        {editando && (
+          <button
+            onClick={resetForm}
+            className="rounded-lg bg-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-400 transition-colors cursor-pointer shrink-0"
+          >
+            Cancelar
+          </button>
+        )}
       </div>
       <table className="w-full text-sm">
         <thead>
           <tr className="bg-slate-100 text-slate-600 uppercase text-xs tracking-wider">
             <th className="text-left px-3 py-2 font-semibold">ID</th>
             <th className="text-left px-3 py-2 font-semibold">Nombre</th>
+            <th className="text-center px-3 py-2 font-semibold">Acciones</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-200">
@@ -65,6 +130,12 @@ function TabCategorias() {
             <tr key={i.id_categoria} className="hover:bg-slate-50">
               <td className="px-3 py-2 text-slate-500">{i.id_categoria}</td>
               <td className="px-3 py-2 text-slate-700">{i.nombre}</td>
+              <td className="px-3 py-2 text-center">
+                <div className="flex items-center justify-center gap-1">
+                  <button onClick={() => handleEdit(i)} className="cursor-pointer text-xs p-1 rounded hover:bg-slate-200 transition-colors" title="Editar">✏️</button>
+                  <button onClick={() => handleDelete(i)} className="cursor-pointer text-xs p-1 rounded hover:bg-red-100 transition-colors" title="Eliminar">🗑️</button>
+                </div>
+              </td>
             </tr>
           ))}
         </tbody>
@@ -73,29 +144,17 @@ function TabCategorias() {
   )
 }
 
+/* ───── Marcas ───── */
 function TabMarcas() {
-  const [items, setItems] = useState<Marca[]>([])
-  const [nombre, setNombre] = useState('')
-  const [cargando, setCargando] = useState(false)
-
-  const cargar = async () => {
-    const { data } = await supabase.from('marcas').select('*').order('nombre')
-    if (data) setItems(data as Marca[])
-  }
-
-  useEffect(() => { cargar() }, [])
-
-  const agregar = async () => {
-    const v = nombre.trim()
-    if (!v) return
-    setCargando(true)
-    const { error } = await supabase.from('marcas').insert({ nombre: v })
-    setCargando(false)
-    if (!error) {
-      setNombre('')
-      cargar()
-    }
-  }
+  const { items, form, setForm, editando, cargando, handleSubmit, handleEdit, handleDelete, resetForm } = useCatalog<Marca>(
+    'marcas',
+    async () => {
+      const { data } = await supabase.from('marcas').select('*').order('nombre')
+      return (data ?? []) as Marca[]
+    },
+    (f) => ({ nombre: (f.nombre ?? '').trim() }),
+    (f) => ({ nombre: (f.nombre ?? '').trim() }),
+  )
 
   return (
     <div>
@@ -103,23 +162,32 @@ function TabMarcas() {
         <input
           type="text"
           placeholder="Nombre de la marca"
-          value={nombre}
-          onChange={(e) => setNombre(e.target.value)}
+          value={(form.nombre as string) ?? ''}
+          onChange={(e) => setForm((p) => ({ ...p, nombre: e.target.value }))}
           className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
         />
         <button
-          onClick={agregar}
-          disabled={cargando || !nombre.trim()}
+          onClick={handleSubmit}
+          disabled={cargando || !(form.nombre as string)?.trim()}
           className="rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-50 transition-colors cursor-pointer shrink-0"
         >
-          {cargando ? '…' : 'Agregar'}
+          {cargando ? '…' : editando ? 'Actualizar' : 'Agregar'}
         </button>
+        {editando && (
+          <button
+            onClick={resetForm}
+            className="rounded-lg bg-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-400 transition-colors cursor-pointer shrink-0"
+          >
+            Cancelar
+          </button>
+        )}
       </div>
       <table className="w-full text-sm">
         <thead>
           <tr className="bg-slate-100 text-slate-600 uppercase text-xs tracking-wider">
             <th className="text-left px-3 py-2 font-semibold">ID</th>
             <th className="text-left px-3 py-2 font-semibold">Nombre</th>
+            <th className="text-center px-3 py-2 font-semibold">Acciones</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-200">
@@ -127,6 +195,12 @@ function TabMarcas() {
             <tr key={i.id_marca} className="hover:bg-slate-50">
               <td className="px-3 py-2 text-slate-500">{i.id_marca}</td>
               <td className="px-3 py-2 text-slate-700">{i.nombre}</td>
+              <td className="px-3 py-2 text-center">
+                <div className="flex items-center justify-center gap-1">
+                  <button onClick={() => handleEdit(i)} className="cursor-pointer text-xs p-1 rounded hover:bg-slate-200 transition-colors" title="Editar">✏️</button>
+                  <button onClick={() => handleDelete(i)} className="cursor-pointer text-xs p-1 rounded hover:bg-red-100 transition-colors" title="Eliminar">🗑️</button>
+                </div>
+              </td>
             </tr>
           ))}
         </tbody>
@@ -135,36 +209,89 @@ function TabMarcas() {
   )
 }
 
-function TabModelos() {
-  const [items, setItems] = useState<Modelo[]>([])
-  const [marcas, setMarcas] = useState<Marca[]>([])
-  const [idMarca, setIdMarca] = useState<number | ''>('')
-  const [nombre, setNombre] = useState('')
-  const [cargando, setCargando] = useState(false)
+/* ───── Modelos (con paginación desde servidor) ───── */
+const MODEL_PAGE_SIZE = 10
 
-  const cargar = async () => {
-    const [resM, resMo] = await Promise.all([
-      supabase.from('marcas').select('*').order('nombre'),
-      supabase.from('modelos').select('*, marcas(*)').order('nombre'),
-    ])
-    if (resM.data) setMarcas(resM.data as Marca[])
-    if (resMo.data) setItems(resMo.data as Modelo[])
+function TabModelos() {
+  const [marcas, setMarcas] = useState<Marca[]>([])
+  const [items, setItems] = useState<Modelo[]>([])
+  const [editando, setEditando] = useState<Modelo | null>(null)
+  const [cargando, setCargando] = useState(false)
+  const [form, setForm] = useState<Partial<Modelo>>({ id_marca: '' as unknown as number })
+  const [modelCurrentPage, setModelCurrentPage] = useState(1)
+  const [modelTotalItems, setModelTotalItems] = useState(0)
+
+  const modelTotalPages = Math.max(1, Math.ceil(modelTotalItems / MODEL_PAGE_SIZE))
+
+  const cargarModelos = async (page: number) => {
+    setCargando(true)
+    const from = (page - 1) * MODEL_PAGE_SIZE
+    const to = from + MODEL_PAGE_SIZE - 1
+
+    const { count, data } = await supabase
+      .from('modelos')
+      .select('*, marcas(*)', { count: 'exact' })
+      .order('nombre')
+      .range(from, to)
+
+    if (data) setItems(data as Modelo[])
+    setModelTotalItems(count ?? 0)
+    setCargando(false)
   }
 
-  useEffect(() => { cargar() }, [])
+  const cargarMarcas = async () => {
+    const { data } = await supabase.from('marcas').select('*').order('nombre')
+    if (data) setMarcas(data as Marca[])
+  }
 
-  const agregar = async () => {
-    if (idMarca === '' || !nombre.trim()) return
+  useEffect(() => {
+    cargarMarcas()
+    cargarModelos(1)
+  }, [])
+
+  useEffect(() => {
+    cargarModelos(modelCurrentPage)
+  }, [modelCurrentPage])
+
+  const resetForm = () => {
+    setForm({ id_marca: '' as unknown as number })
+    setEditando(null)
+  }
+
+  const handleSubmit = async () => {
+    const idMarca = form.id_marca as number | undefined
+    const nombre = (form.nombre as string)?.trim()
+    if (!idMarca || !nombre) return
     setCargando(true)
-    const { error } = await supabase.from('modelos').insert({
-      id_marca: idMarca,
-      nombre: nombre.trim(),
-    })
+    let error
+    if (editando) {
+      ;({ error } = await supabase.from('modelos').update({ id_marca: idMarca, nombre }).eq('id_modelo', editando.id_modelo))
+    } else {
+      ;({ error } = await supabase.from('modelos').insert({ id_marca: idMarca, nombre }))
+    }
     setCargando(false)
     if (!error) {
-      setIdMarca('')
-      setNombre('')
-      cargar()
+      resetForm()
+      if (editando) {
+        cargarModelos(modelCurrentPage)
+      } else {
+        setModelCurrentPage(1)
+      }
+    }
+  }
+
+  const handleEdit = (item: Modelo) => {
+    setForm({ id_marca: item.id_marca, nombre: item.nombre })
+    setEditando(item)
+  }
+
+  const handleDelete = async (item: Modelo) => {
+    if (!window.confirm(`¿Eliminar "${item.nombre}"?`)) return
+    const { error } = await supabase.from('modelos').delete().eq('id_modelo', item.id_modelo)
+    if (!error) {
+      if (editando?.id_modelo === item.id_modelo) resetForm()
+      const stillHasItems = modelCurrentPage > 1 && items.length <= 1
+      cargarModelos(stillHasItems ? modelCurrentPage - 1 : modelCurrentPage)
     }
   }
 
@@ -172,8 +299,8 @@ function TabModelos() {
     <div>
       <div className="flex gap-2 mb-4">
         <select
-          value={idMarca}
-          onChange={(e) => setIdMarca(e.target.value === '' ? '' : Number(e.target.value))}
+          value={(form.id_marca as number | undefined) ?? ''}
+          onChange={(e) => setForm((p) => ({ ...p, id_marca: e.target.value === '' ? ('' as unknown as undefined) : Number(e.target.value) }))}
           className="w-48 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
         >
           <option value="">Marca…</option>
@@ -184,17 +311,25 @@ function TabModelos() {
         <input
           type="text"
           placeholder="Nombre del modelo"
-          value={nombre}
-          onChange={(e) => setNombre(e.target.value)}
+          value={(form.nombre as string) ?? ''}
+          onChange={(e) => setForm((p) => ({ ...p, nombre: e.target.value }))}
           className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
         />
         <button
-          onClick={agregar}
-          disabled={cargando || idMarca === '' || !nombre.trim()}
+          onClick={handleSubmit}
+          disabled={cargando || (form.id_marca as number | '') === '' || !(form.nombre as string)?.trim()}
           className="rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-50 transition-colors cursor-pointer shrink-0"
         >
-          {cargando ? '…' : 'Agregar'}
+          {cargando ? '…' : editando ? 'Actualizar' : 'Agregar'}
         </button>
+        {editando && (
+          <button
+            onClick={resetForm}
+            className="rounded-lg bg-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-400 transition-colors cursor-pointer shrink-0"
+          >
+            Cancelar
+          </button>
+        )}
       </div>
       <table className="w-full text-sm">
         <thead>
@@ -202,6 +337,7 @@ function TabModelos() {
             <th className="text-left px-3 py-2 font-semibold">ID</th>
             <th className="text-left px-3 py-2 font-semibold">Modelo</th>
             <th className="text-left px-3 py-2 font-semibold">Marca</th>
+            <th className="text-center px-3 py-2 font-semibold">Acciones</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-200">
@@ -210,41 +346,52 @@ function TabModelos() {
               <td className="px-3 py-2 text-slate-500">{i.id_modelo}</td>
               <td className="px-3 py-2 text-slate-700">{i.nombre}</td>
               <td className="px-3 py-2 text-slate-700">{i.marcas?.nombre}</td>
+              <td className="px-3 py-2 text-center">
+                <div className="flex items-center justify-center gap-1">
+                  <button onClick={() => handleEdit(i)} className="cursor-pointer text-xs p-1 rounded hover:bg-slate-200 transition-colors" title="Editar">✏️</button>
+                  <button onClick={() => handleDelete(i)} className="cursor-pointer text-xs p-1 rounded hover:bg-red-100 transition-colors" title="Eliminar">🗑️</button>
+                </div>
+              </td>
             </tr>
           ))}
         </tbody>
       </table>
+      {modelTotalPages > 1 && (
+        <div className="flex items-center justify-center gap-4 mt-4">
+          <button
+            onClick={() => setModelCurrentPage((p) => Math.max(1, p - 1))}
+            disabled={modelCurrentPage <= 1}
+            className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
+          >
+            &lt; Anterior
+          </button>
+          <span className="text-sm text-slate-600">
+            Página {modelCurrentPage} de {modelTotalPages}
+          </span>
+          <button
+            onClick={() => setModelCurrentPage((p) => Math.min(modelTotalPages, p + 1))}
+            disabled={modelCurrentPage >= modelTotalPages}
+            className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
+          >
+            Siguiente &gt;
+          </button>
+        </div>
+      )}
     </div>
   )
 }
 
+/* ───── Distribuidores ───── */
 function TabDistribuidores() {
-  const [items, setItems] = useState<Distribuidor[]>([])
-  const [nombre, setNombre] = useState('')
-  const [contacto, setContacto] = useState('')
-  const [cargando, setCargando] = useState(false)
-
-  const cargar = async () => {
-    const { data } = await supabase.from('distribuidores').select('*').order('nombre')
-    if (data) setItems(data as Distribuidor[])
-  }
-
-  useEffect(() => { cargar() }, [])
-
-  const agregar = async () => {
-    if (!nombre.trim()) return
-    setCargando(true)
-    const { error } = await supabase.from('distribuidores').insert({
-      nombre: nombre.trim(),
-      contacto: contacto.trim() || null,
-    })
-    setCargando(false)
-    if (!error) {
-      setNombre('')
-      setContacto('')
-      cargar()
-    }
-  }
+  const { items, form, setForm, editando, cargando, handleSubmit, handleEdit, handleDelete, resetForm } = useCatalog<Distribuidor>(
+    'distribuidores',
+    async () => {
+      const { data } = await supabase.from('distribuidores').select('*').order('nombre')
+      return (data ?? []) as Distribuidor[]
+    },
+    (f) => ({ nombre: (f.nombre as string ?? '').trim(), contacto: (f.contacto as string ?? '').trim() || null }),
+    (f) => ({ nombre: (f.nombre as string ?? '').trim(), contacto: (f.contacto as string ?? '').trim() || null }),
+  )
 
   return (
     <div>
@@ -252,24 +399,32 @@ function TabDistribuidores() {
         <input
           type="text"
           placeholder="Nombre del distribuidor"
-          value={nombre}
-          onChange={(e) => setNombre(e.target.value)}
+          value={(form.nombre as string) ?? ''}
+          onChange={(e) => setForm((p) => ({ ...p, nombre: e.target.value }))}
           className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
         />
         <input
           type="text"
           placeholder="Contacto (opcional)"
-          value={contacto}
-          onChange={(e) => setContacto(e.target.value)}
+          value={(form.contacto as string) ?? ''}
+          onChange={(e) => setForm((p) => ({ ...p, contacto: e.target.value }))}
           className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
         />
         <button
-          onClick={agregar}
-          disabled={cargando || !nombre.trim()}
+          onClick={handleSubmit}
+          disabled={cargando || !(form.nombre as string)?.trim()}
           className="rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-50 transition-colors cursor-pointer shrink-0"
         >
-          {cargando ? '…' : 'Agregar'}
+          {cargando ? '…' : editando ? 'Actualizar' : 'Agregar'}
         </button>
+        {editando && (
+          <button
+            onClick={resetForm}
+            className="rounded-lg bg-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-400 transition-colors cursor-pointer shrink-0"
+          >
+            Cancelar
+          </button>
+        )}
       </div>
       <table className="w-full text-sm">
         <thead>
@@ -277,6 +432,7 @@ function TabDistribuidores() {
             <th className="text-left px-3 py-2 font-semibold">ID</th>
             <th className="text-left px-3 py-2 font-semibold">Nombre</th>
             <th className="text-left px-3 py-2 font-semibold">Contacto</th>
+            <th className="text-center px-3 py-2 font-semibold">Acciones</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-200">
@@ -285,6 +441,12 @@ function TabDistribuidores() {
               <td className="px-3 py-2 text-slate-500">{i.id_distribuidor}</td>
               <td className="px-3 py-2 text-slate-700">{i.nombre}</td>
               <td className="px-3 py-2 text-slate-700">{i.contacto ?? '—'}</td>
+              <td className="px-3 py-2 text-center">
+                <div className="flex items-center justify-center gap-1">
+                  <button onClick={() => handleEdit(i)} className="cursor-pointer text-xs p-1 rounded hover:bg-slate-200 transition-colors" title="Editar">✏️</button>
+                  <button onClick={() => handleDelete(i)} className="cursor-pointer text-xs p-1 rounded hover:bg-red-100 transition-colors" title="Eliminar">🗑️</button>
+                </div>
+              </td>
             </tr>
           ))}
         </tbody>

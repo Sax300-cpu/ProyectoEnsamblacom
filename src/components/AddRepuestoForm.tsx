@@ -205,6 +205,7 @@ export function AddRepuestoForm({ seccion, onSuccess, onCancel }: Props) {
     const payload = {
       id_categoria: form.id_categoria as number,
       id_distribuidor: form.id_distribuidor as number,
+      id_modelo_principal: form.id_modelo_principal as number,
       stock: form.stock as number,
       costo_distribuidor: form.costo_distribuidor as number,
       precio_tecnico: form.precio_tecnico as number,
@@ -218,6 +219,7 @@ export function AddRepuestoForm({ seccion, onSuccess, onCancel }: Props) {
       .select('id_repuesto, stock')
       .eq('id_categoria', payload.id_categoria)
       .eq('id_distribuidor', payload.id_distribuidor)
+      .eq('id_modelo_principal', payload.id_modelo_principal)
       .eq('atributos', payload.atributos)
       .maybeSingle()
 
