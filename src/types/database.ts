@@ -30,6 +30,7 @@ export interface Repuesto {
   id_repuesto: number
   id_categoria: number
   id_distribuidor: number
+  id_modelo_principal: number
   stock: number
   costo_distribuidor: number
   precio_tecnico: number

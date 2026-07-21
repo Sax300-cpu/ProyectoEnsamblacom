@@ -8,16 +8,37 @@ interface Props {
 }
 
 const CATEGORIA_PANTALLAS = 1
+const PAGE_SIZE = 10
 
 export function InventoryTable({ seccion, buscar }: Props) {
   const [repuestos, setRepuestos] = useState<RepuestoConRelaciones[]>([])
   const [cargando, setCargando] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [currentPage, setCurrentPage] = useState(1)
+  const [totalCount, setTotalCount] = useState(0)
+
+  const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE))
 
   useEffect(() => {
+    setCurrentPage(1)
+  }, [seccion, buscar])
+
+  useEffect(() => {
+    setCargando(true)
+    setError(null)
+
+    const idFilter = seccion === 'pantallas' ? 'eq' : 'neq'
+
     const obtenerRepuestos = async () => {
-      setCargando(true)
-      setError(null)
+      const { count } = await supabase
+        .from('repuestos')
+        .select('*', { count: 'exact', head: true })
+        .filter('id_categoria', idFilter, CATEGORIA_PANTALLAS)
+
+      setTotalCount(count ?? 0)
+
+      const from = (currentPage - 1) * PAGE_SIZE
+      const to = from + PAGE_SIZE - 1
 
       const { data, error } = await supabase
         .from('repuestos')
@@ -43,8 +64,9 @@ export function InventoryTable({ seccion, buscar }: Props) {
             nombre
           )
         `)
-        .filter('id_categoria', seccion === 'pantallas' ? 'eq' : 'neq', CATEGORIA_PANTALLAS)
+        .filter('id_categoria', idFilter, CATEGORIA_PANTALLAS)
         .order('id_repuesto', { ascending: true })
+        .range(from, to)
 
       if (error) {
         setError(error.message)
@@ -57,7 +79,7 @@ export function InventoryTable({ seccion, buscar }: Props) {
     }
 
     obtenerRepuestos()
-  }, [seccion])
+  }, [seccion, currentPage])
 
   const filtrados = repuestos.filter((r) => {
     if (!buscar) return true
@@ -104,109 +126,133 @@ export function InventoryTable({ seccion, buscar }: Props) {
   }
 
   return (
-    <div className="overflow-x-auto rounded-lg border border-slate-200 shadow-sm">
-      <table className="min-w-full text-sm">
-        <thead>
-          <tr className="bg-slate-100 text-slate-600 uppercase text-xs tracking-wider">
-            <th className="text-left px-4 py-3 font-semibold">Categoría</th>
-            <th className="text-left px-4 py-3 font-semibold">Marca</th>
-            <th className="text-left px-4 py-3 font-semibold">Modelo</th>
-            <th className="text-left px-4 py-3 font-semibold">Distribuidor</th>
-            <th className="text-left px-4 py-3 font-semibold">Detalles</th>
-            <th className="text-right px-4 py-3 font-semibold">Stock</th>
-            <th className="text-right px-4 py-3 font-semibold">Costo</th>
-            <th className="text-right px-4 py-3 font-semibold">Precio Técnico</th>
-            <th className="text-right px-4 py-3 font-semibold">Precio Cliente</th>
-            <th className="text-center px-4 py-3 font-semibold">Acciones</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-slate-200">
-          {filtrados.map((r) => {
-            const marcaNombre =
-              r.repuestos_compatibilidad[0]?.modelos.marcas.nombre ?? '—'
+    <div>
+      <div className="overflow-x-auto rounded-lg border border-slate-200 shadow-sm">
+        <table className="min-w-full text-sm">
+          <thead>
+            <tr className="bg-slate-100 text-slate-600 uppercase text-xs tracking-wider">
+              <th className="text-left px-4 py-3 font-semibold">Categoría</th>
+              <th className="text-left px-4 py-3 font-semibold">Marca</th>
+              <th className="text-left px-4 py-3 font-semibold">Modelo</th>
+              <th className="text-left px-4 py-3 font-semibold">Distribuidor</th>
+              <th className="text-left px-4 py-3 font-semibold">Detalles</th>
+              <th className="text-right px-4 py-3 font-semibold">Stock</th>
+              <th className="text-right px-4 py-3 font-semibold">Costo</th>
+              <th className="text-right px-4 py-3 font-semibold">Precio Técnico</th>
+              <th className="text-right px-4 py-3 font-semibold">Precio Cliente</th>
+              <th className="text-center px-4 py-3 font-semibold">Acciones</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-200">
+            {filtrados.map((r) => {
+              const marcaNombre =
+                r.repuestos_compatibilidad[0]?.modelos.marcas.nombre ?? '—'
 
-            return (
-              <tr key={r.id_repuesto} className="hover:bg-slate-50 transition-colors">
-                <td className="px-4 py-3 text-slate-700">{r.categorias.nombre}</td>
-                <td className="px-4 py-3 text-slate-700">{marcaNombre}</td>
-                <td className="px-4 py-3 text-slate-700">
-                  <div className="flex flex-wrap gap-1">
-                    {r.repuestos_compatibilidad.map((rc) => (
-                      <span
-                        key={rc.id_modelo}
-                        className="inline-block rounded-md bg-indigo-100 text-indigo-700 px-2 py-0.5 text-xs font-medium"
-                      >
-                        {rc.modelos.nombre}
-                      </span>
-                    ))}
-                  </div>
-                </td>
-                <td className="px-4 py-3 text-slate-700">{r.distribuidores.nombre}</td>
-                <td className="px-4 py-3">
-                  <div className="flex flex-wrap gap-1">
-                    {Object.entries(r.atributos ?? {}).flatMap(([key, val]) => {
-                      if (typeof val === 'boolean') {
-                        if (!val) return []
-                        const label =
-                          key === 'con_bisel' ? 'Con Bisel' :
-                          key === 'vidrio_camara' ? 'Con Vidrio' :
-                          key
+              return (
+                <tr key={r.id_repuesto} className="hover:bg-slate-50 transition-colors">
+                  <td className="px-4 py-3 text-slate-700">{r.categorias.nombre}</td>
+                  <td className="px-4 py-3 text-slate-700">{marcaNombre}</td>
+                  <td className="px-4 py-3 text-slate-700">
+                    <div className="flex flex-wrap gap-1">
+                      {r.repuestos_compatibilidad.map((rc) => (
+                        <span
+                          key={rc.id_modelo}
+                          className="inline-block rounded-md bg-indigo-100 text-indigo-700 px-2 py-0.5 text-xs font-medium"
+                        >
+                          {rc.modelos.nombre}
+                        </span>
+                      ))}
+                    </div>
+                  </td>
+                  <td className="px-4 py-3 text-slate-700">{r.distribuidores.nombre}</td>
+                  <td className="px-4 py-3">
+                    <div className="flex flex-wrap gap-1">
+                      {Object.entries(r.atributos ?? {}).flatMap(([key, val]) => {
+                        if (typeof val === 'boolean') {
+                          if (!val) return []
+                          const label =
+                            key === 'con_bisel' ? 'Con Bisel' :
+                            key === 'vidrio_camara' ? 'Con Vidrio' :
+                            key
+                          return [(
+                            <span key={key} className="inline-block rounded-md bg-slate-100 text-slate-600 px-2 py-0.5 text-xs">
+                              {label}
+                            </span>
+                          )]
+                        }
+                        if (key === 'calidad' || key === 'color') {
+                          return [(
+                            <span key={key} className="inline-block rounded-md bg-slate-100 text-slate-600 px-2 py-0.5 text-xs uppercase">
+                              {String(val)}
+                            </span>
+                          )]
+                        }
                         return [(
                           <span key={key} className="inline-block rounded-md bg-slate-100 text-slate-600 px-2 py-0.5 text-xs">
-                            {label}
+                            {key}: {String(val)}
                           </span>
                         )]
-                      }
-                      if (key === 'calidad' || key === 'color') {
-                        return [(
-                          <span key={key} className="inline-block rounded-md bg-slate-100 text-slate-600 px-2 py-0.5 text-xs uppercase">
-                            {String(val)}
-                          </span>
-                        )]
-                      }
-                      return [(
-                        <span key={key} className="inline-block rounded-md bg-slate-100 text-slate-600 px-2 py-0.5 text-xs">
-                          {key}: {String(val)}
-                        </span>
-                      )]
-                    })}
-                  </div>
-                </td>
-                <td className="px-4 py-3 text-right">
-                  <span
-                    className={`inline-block min-w-[2rem] rounded-full px-2 py-0.5 text-xs font-semibold ${
-                      r.stock <= 5
-                        ? 'bg-red-100 text-red-700'
-                        : r.stock <= 15
-                        ? 'bg-amber-100 text-amber-700'
-                        : 'bg-green-100 text-green-700'
-                    }`}
-                  >
-                    {r.stock}
-                  </span>
-                </td>
-                <td className="px-4 py-3 text-right text-slate-700 font-mono">
-                  {r.costo_distribuidor.toFixed(2)}
-                </td>
-                <td className="px-4 py-3 text-right text-slate-700 font-mono">
-                  {r.precio_tecnico.toFixed(2)}
-                </td>
-                <td className="px-4 py-3 text-right text-slate-700 font-mono">
-                  {r.precio_cliente.toFixed(2)}
-                </td>
-                <td className="px-4 py-3 text-center">
-                  <button
-                    onClick={() => console.log('Vender repuesto id:', r.id_repuesto)}
-                    className="rounded-md bg-emerald-600 px-3 py-1 text-xs font-semibold text-white hover:bg-emerald-700 transition-colors cursor-pointer"
-                  >
-                    Vender
-                  </button>
-                </td>
-              </tr>
-            )
-          })}
-        </tbody>
-      </table>
+                      })}
+                    </div>
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    <span
+                      className={`inline-block min-w-[2rem] rounded-full px-2 py-0.5 text-xs font-semibold ${
+                        r.stock <= 5
+                          ? 'bg-red-100 text-red-700'
+                          : r.stock <= 15
+                          ? 'bg-amber-100 text-amber-700'
+                          : 'bg-green-100 text-green-700'
+                      }`}
+                    >
+                      {r.stock}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-right text-slate-700 font-mono">
+                    {r.costo_distribuidor.toFixed(2)}
+                  </td>
+                  <td className="px-4 py-3 text-right text-slate-700 font-mono">
+                    {r.precio_tecnico.toFixed(2)}
+                  </td>
+                  <td className="px-4 py-3 text-right text-slate-700 font-mono">
+                    {r.precio_cliente.toFixed(2)}
+                  </td>
+                  <td className="px-4 py-3 text-center">
+                    <button
+                      onClick={() => console.log('Vender repuesto id:', r.id_repuesto)}
+                      className="rounded-md bg-emerald-600 px-3 py-1 text-xs font-semibold text-white hover:bg-emerald-700 transition-colors cursor-pointer"
+                    >
+                      Vender
+                    </button>
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {totalPages > 1 && (
+        <div className="flex items-center justify-center gap-4 mt-4">
+          <button
+            onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+            disabled={currentPage <= 1}
+            className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
+          >
+            &lt; Anterior
+          </button>
+          <span className="text-sm text-slate-600">
+            Página {currentPage} de {totalPages}
+          </span>
+          <button
+            onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+            disabled={currentPage >= totalPages}
+            className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
+          >
+            Siguiente &gt;
+          </button>
+        </div>
+      )}
     </div>
   )
 }
