@@ -32,17 +32,12 @@ export function InventoryTable({ seccion, buscar }: Props) {
     const idFilter = seccion === 'pantallas' ? 'eq' : 'neq'
 
     const obtenerRepuestos = async () => {
-      const { count } = await supabase
+      let countQuery = supabase
         .from('repuestos')
         .select('*', { count: 'exact', head: true })
         .filter('id_categoria', idFilter, CATEGORIA_PANTALLAS)
 
-      setTotalCount(count ?? 0)
-
-      const from = (currentPage - 1) * PAGE_SIZE
-      const to = from + PAGE_SIZE - 1
-
-      const { data, error } = await supabase
+      let dataQuery = supabase
         .from('repuestos')
         .select(`
           *,
@@ -67,6 +62,41 @@ export function InventoryTable({ seccion, buscar }: Props) {
           )
         `)
         .filter('id_categoria', idFilter, CATEGORIA_PANTALLAS)
+
+      if (buscar) {
+        const term = `%${buscar.toLowerCase()}%`
+
+        const [catRes, modRes] = await Promise.all([
+          supabase.from('categorias').select('id_categoria').ilike('nombre', term),
+          supabase.from('modelos').select('id_modelo').ilike('nombre', term),
+        ])
+
+        const catIds = catRes.data?.map((c) => c.id_categoria) ?? []
+        const modIds = modRes.data?.map((m) => m.id_modelo) ?? []
+
+        const orParts: string[] = []
+        if (catIds.length) orParts.push(`id_categoria.in.(${catIds.join(',')})`)
+        if (modIds.length) orParts.push(`id_modelo_principal.in.(${modIds.join(',')})`)
+
+        if (orParts.length === 0) {
+          setTotalCount(0)
+          setRepuestos([])
+          setCargando(false)
+          return
+        }
+
+        const orString = orParts.join(',')
+        countQuery = countQuery.or(orString)
+        dataQuery = dataQuery.or(orString)
+      }
+
+      const { count } = await countQuery
+      setTotalCount(count ?? 0)
+
+      const from = (currentPage - 1) * PAGE_SIZE
+      const to = from + PAGE_SIZE - 1
+
+      const { data, error } = await dataQuery
         .order('id_repuesto', { ascending: true })
         .range(from, to)
 
@@ -81,21 +111,7 @@ export function InventoryTable({ seccion, buscar }: Props) {
     }
 
     obtenerRepuestos()
-  }, [seccion, currentPage, refreshKey])
-
-  const filtrados = repuestos.filter((r) => {
-    if (!buscar) return true
-    const q = buscar.toLowerCase()
-    return (
-      r.repuestos_compatibilidad.some((rc) =>
-        rc.modelos.nombre.toLowerCase().includes(q),
-      ) ||
-      r.repuestos_compatibilidad.some((rc) =>
-        rc.modelos.marcas.nombre.toLowerCase().includes(q),
-      ) ||
-      r.categorias.nombre.toLowerCase().includes(q)
-    )
-  })
+  }, [seccion, currentPage, buscar, refreshKey])
 
   if (cargando) {
     return (
@@ -119,7 +135,7 @@ export function InventoryTable({ seccion, buscar }: Props) {
     )
   }
 
-  if (filtrados.length === 0) {
+  if (repuestos.length === 0) {
     return (
       <div className="text-center py-12 text-slate-500 text-sm">
         No hay repuestos registrados.
@@ -146,7 +162,7 @@ export function InventoryTable({ seccion, buscar }: Props) {
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-200">
-            {filtrados.map((r) => {
+            {repuestos.map((r) => {
               const marcaNombre =
                 r.repuestos_compatibilidad[0]?.modelos.marcas.nombre ?? '—'
 
