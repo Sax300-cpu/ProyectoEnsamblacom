@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import type { RepuestoConRelaciones } from '../types/database'
+import { useCart } from '../contexts/CartContext'
 
 interface Props {
   seccion: 'pantallas' | 'otros'
@@ -18,6 +19,7 @@ export function InventoryTable({ seccion, buscar }: Props) {
   const [totalCount, setTotalCount] = useState(0)
 
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE))
+  const { addToCart, openCart, refreshKey } = useCart()
 
   useEffect(() => {
     setCurrentPage(1)
@@ -79,7 +81,7 @@ export function InventoryTable({ seccion, buscar }: Props) {
     }
 
     obtenerRepuestos()
-  }, [seccion, currentPage])
+  }, [seccion, currentPage, refreshKey])
 
   const filtrados = repuestos.filter((r) => {
     if (!buscar) return true
@@ -219,7 +221,23 @@ export function InventoryTable({ seccion, buscar }: Props) {
                   </td>
                   <td className="px-4 py-3 text-center">
                     <button
-                      onClick={() => console.log('Vender repuesto id:', r.id_repuesto)}
+                      onClick={() => {
+                        const modeloNombre = r.repuestos_compatibilidad[0]?.modelos.nombre ?? '—'
+                        const marcaNombre = r.repuestos_compatibilidad[0]?.modelos.marcas.nombre ?? '—'
+                        addToCart({
+                          id_repuesto: r.id_repuesto,
+                          cantidad: 1,
+                          precio: r.precio_tecnico,
+                          precio_tecnico: r.precio_tecnico,
+                          precio_cliente: r.precio_cliente,
+                          tipo_precio: 'tecnico',
+                          descripcion: `${marcaNombre} ${modeloNombre}`,
+                          categoria: r.categorias.nombre,
+                          modelo_nombre: modeloNombre,
+                          stock_disponible: r.stock,
+                        })
+                        openCart()
+                      }}
                       className="rounded-md bg-emerald-600 px-3 py-1 text-xs font-semibold text-white hover:bg-emerald-700 transition-colors cursor-pointer"
                     >
                       Vender
