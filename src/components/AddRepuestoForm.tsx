@@ -12,7 +12,8 @@ interface AtributoField {
 
 const definicionesAtributos: Record<string, AtributoField[]> = {
   pantallas: [
-    { tipo: 'select', nombre: 'calidad', label: 'Calidad', opciones: ['OLED', 'INCELL'] },
+    { tipo: 'select', nombre: 'calidad', label: 'Calidad', opciones: ['OLED', 'INCELL', 'ORIG'] },
+    { tipo: 'text', nombre: 'color', label: 'Color' },
     { tipo: 'checkbox', nombre: 'con_bisel', label: 'Con Bisel' },
   ],
   tapas: [

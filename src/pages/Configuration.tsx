@@ -292,6 +292,8 @@ function TabModelos() {
       if (editando?.id_modelo === item.id_modelo) resetForm()
       const stillHasItems = modelCurrentPage > 1 && items.length <= 1
       cargarModelos(stillHasItems ? modelCurrentPage - 1 : modelCurrentPage)
+    } else if (error.code === '23503') {
+      alert('No se puede eliminar este modelo porque existen repuestos en el inventario asociados a él. Elimine primero los repuestos.')
     }
   }
 
