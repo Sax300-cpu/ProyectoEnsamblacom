@@ -54,4 +54,35 @@ export interface RepuestoConRelaciones extends Repuesto {
   }[]
   categorias: Pick<Categoria, 'id_categoria' | 'nombre'>
   distribuidores: Pick<Distribuidor, 'id_distribuidor' | 'nombre'>
+  modelos?: Pick<Modelo, 'id_modelo' | 'nombre'> & {
+    marcas: Pick<Marca, 'id_marca' | 'nombre'>
+  }
+}
+
+export interface Venta {
+  id_venta: number
+  alias_tecnico: string
+  estado_pago: string
+  metodo_pago: string
+  total: number
+  notas: string | null
+  created_at: string
+}
+
+export interface DetalleVenta {
+  id_detalle: number
+  id_venta: number
+  id_repuesto: number
+  cantidad: number
+  precio_unitario: number
+  subtotal: number
+  created_at: string
+}
+
+export interface DetalleVentaConRepuesto extends DetalleVenta {
+  repuestos: RepuestoConRelaciones
+}
+
+export interface VentaConDetalles extends Venta {
+  detalles_venta: DetalleVentaConRepuesto[]
 }

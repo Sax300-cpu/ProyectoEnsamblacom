@@ -2,6 +2,7 @@ import { Routes, Route, Link } from 'react-router-dom';
 import { Home } from './pages/Home';
 import { Products } from './pages/Products';
 import { Configuration } from './pages/Configuration';
+import { CuentasPorCobrar } from './pages/CuentasPorCobrar';
 import { CartProvider } from './contexts/CartContext';
 import { CartDrawer } from './components/CartDrawer';
 import { useCart } from './contexts/CartContext';
@@ -36,6 +37,7 @@ function App() {
             <Link to="/" className="hover:text-blue-200 transition-colors">Inicio</Link>
             <Link to="/productos?seccion=pantallas" className="hover:text-blue-200 transition-colors">Pantallas</Link>
             <Link to="/productos?seccion=otros" className="hover:text-blue-200 transition-colors">Repuestos</Link>
+            <Link to="/por-cobrar" className="hover:text-blue-200 transition-colors">Por Cobrar</Link>
             <Link to="/configuracion" className="hover:text-blue-200 transition-colors">⚙️ Configuración</Link>
             <NavCartButton />
           </div>
@@ -45,6 +47,7 @@ function App() {
           <Routes>
             <Route path="/" element={<Home />} />
             <Route path="/productos" element={<Products />} />
+            <Route path="/por-cobrar" element={<CuentasPorCobrar />} />
             <Route path="/configuracion" element={<Configuration />} />
           </Routes>
         </main>
