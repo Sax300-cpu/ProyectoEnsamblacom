@@ -6,12 +6,13 @@ import { useCart } from '../contexts/CartContext'
 interface Props {
   seccion: 'pantallas' | 'otros'
   buscar: string
+  refreshKey?: number
 }
 
 const CATEGORIA_PANTALLAS = 1
 const PAGE_SIZE = 10
 
-export function InventoryTable({ seccion, buscar }: Props) {
+export function InventoryTable({ seccion, buscar, refreshKey: stockRefreshKey = 0 }: Props) {
   const [repuestos, setRepuestos] = useState<RepuestoConRelaciones[]>([])
   const [cargando, setCargando] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -111,7 +112,7 @@ export function InventoryTable({ seccion, buscar }: Props) {
     }
 
     obtenerRepuestos()
-  }, [seccion, currentPage, buscar, refreshKey])
+  }, [seccion, currentPage, buscar, refreshKey, stockRefreshKey])
 
   if (cargando) {
     return (
