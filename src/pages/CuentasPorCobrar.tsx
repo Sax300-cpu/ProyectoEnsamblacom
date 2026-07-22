@@ -99,6 +99,12 @@ export function CuentasPorCobrar() {
   const [ventas, setVentas] = useState<VentaConDetalles[]>([])
   const [cargando, setCargando] = useState(true)
   const [liquidando, setLiquidando] = useState<VentaConDetalles | null>(null)
+  const [busqueda, setBusqueda] = useState('')
+
+  const ventasFiltradas = ventas.filter((v) =>
+    v.alias_tecnico.toLowerCase().includes(busqueda.toLowerCase()),
+  )
+  const totalAcumulado = ventasFiltradas.reduce((sum, v) => sum + v.total, 0)
 
   const formatFecha = (fechaString: string) => {
     if (!fechaString) return 'Sin fecha'
@@ -168,9 +174,12 @@ export function CuentasPorCobrar() {
 
   if (ventas.length === 0) {
     return (
-      <div className="text-center py-12 text-slate-500 text-sm">
-        No hay cuentas por cobrar.
-      </div>
+      <section>
+        <h2 className="text-2xl font-semibold text-slate-800 mb-4">Por Cobrar</h2>
+        <div className="text-center py-12 text-slate-500 text-sm">
+          No hay cuentas por cobrar.
+        </div>
+      </section>
     )
   }
 
@@ -178,11 +187,29 @@ export function CuentasPorCobrar() {
     <section>
       <h2 className="text-2xl font-semibold text-slate-800 mb-4">Por Cobrar</h2>
 
-      <div className="grid gap-4">
-        {ventas.map((venta) => (
+      <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 mb-4">
+        <input
+          type="text"
+          placeholder="Buscar por nombre de técnico…"
+          value={busqueda}
+          onChange={(e) => setBusqueda(e.target.value)}
+          className="w-full sm:w-72 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+        />
+        <div className="rounded-lg bg-emerald-50 border border-emerald-200 px-4 py-2 text-sm font-semibold text-emerald-700">
+          Total Filtrado: S/ {totalAcumulado.toFixed(2)}
+        </div>
+      </div>
+
+      {ventasFiltradas.length === 0 ? (
+        <div className="text-center py-12 text-slate-500 text-sm">
+          No se encontraron deudas para este técnico.
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 overflow-y-auto max-h-[70vh] p-1">
+          {ventasFiltradas.map((venta) => (
           <div
             key={venta.id_venta}
-            className="rounded-xl border border-slate-200 bg-white shadow-sm p-5 space-y-3"
+            className="rounded-xl border border-slate-200 bg-white shadow-sm p-5 space-y-3 h-full"
           >
             {/* Header */}
             <div className="flex items-start justify-between gap-4">
@@ -239,6 +266,7 @@ export function CuentasPorCobrar() {
           </div>
         ))}
       </div>
+      )}
 
       {liquidando && (
         <LiquidarModal
