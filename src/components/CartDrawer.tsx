@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { useCart } from '../contexts/CartContext'
 import { formatearDetalles } from '../lib/format'
@@ -12,6 +12,25 @@ export function CartDrawer() {
   const [estado, setEstado] = useState('Pagado')
   const [metodoPago, setMetodoPago] = useState('Efectivo')
   const [nroComprobante, setNroComprobante] = useState('')
+  const [tecnicosPrevios, setTecnicosPrevios] = useState<string[]>([])
+
+  useEffect(() => {
+    if (!isOpen) return
+    supabase
+      .from('ventas')
+      .select('alias_tecnico')
+      .then(({ data }) => {
+        if (!data) return
+        const unicos = Array.from(
+          new Set(
+            data
+              .map((v) => v.alias_tecnico?.trim())
+              .filter(Boolean),
+          ),
+        ) as string[]
+        setTecnicosPrevios(unicos)
+      })
+  }, [isOpen])
 
   const esTransferencia = metodoPago === 'Transferencia'
   const confirmDisabled = !alias.trim() || enviando || (esTransferencia && !nroComprobante.trim())
@@ -186,8 +205,14 @@ export function CartDrawer() {
                 placeholder="Alias del Técnico *"
                 value={alias}
                 onChange={(e) => setAlias(e.target.value)}
+                list="lista-tecnicos"
                 className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
+              <datalist id="lista-tecnicos">
+                {tecnicosPrevios.map((t) => (
+                  <option key={t} value={t} />
+                ))}
+              </datalist>
 
               <div className="grid grid-cols-2 gap-2">
                 <select
