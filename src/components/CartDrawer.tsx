@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useCart } from '../contexts/CartContext'
+import { formatearDetalles } from '../lib/format'
 
 export function CartDrawer() {
   const {
@@ -122,6 +123,9 @@ export function CartDrawer() {
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-medium text-slate-800 truncate">{item.descripcion}</p>
                       <p className="text-xs text-slate-500">{item.categoria}</p>
+                      <p className="text-xs text-gray-500">
+                        {formatearDetalles(item.distribuidor, item.detalles)}
+                      </p>
                     </div>
                     <button
                       onClick={() => removeFromCart(item.id_repuesto)}

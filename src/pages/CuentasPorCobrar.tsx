@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import type { VentaConDetalles } from '../types/database'
+import { formatearDetalles } from '../lib/format'
 
 function LiquidarModal({
   venta,
@@ -99,6 +100,24 @@ export function CuentasPorCobrar() {
   const [cargando, setCargando] = useState(true)
   const [liquidando, setLiquidando] = useState<VentaConDetalles | null>(null)
 
+  const formatFecha = (fechaString: string) => {
+    if (!fechaString) return 'Sin fecha'
+    try {
+      const d = new Date(fechaString)
+      return isNaN(d.getTime())
+        ? 'Fecha inválida'
+        : d.toLocaleString('es-ES', {
+            day: '2-digit',
+            month: '2-digit',
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+          })
+    } catch {
+      return 'Error de fecha'
+    }
+  }
+
   const cargarVentas = async () => {
     setCargando(true)
     const { data } = await supabase
@@ -169,13 +188,7 @@ export function CuentasPorCobrar() {
             <div className="flex items-start justify-between gap-4">
               <div className="space-y-1">
                 <p className="text-sm text-slate-500">
-                  {new Date(venta.created_at).toLocaleDateString('es-PE', {
-                    day: '2-digit',
-                    month: 'long',
-                    year: 'numeric',
-                    hour: '2-digit',
-                    minute: '2-digit',
-                  })}
+                  {formatFecha(venta.fecha_hora)}
                 </p>
                 <p className="text-sm font-medium text-slate-800">
                   {venta.alias_tecnico}
@@ -199,9 +212,13 @@ export function CuentasPorCobrar() {
               {venta.detalles_venta.map((det) => {
                 const modelo = det.repuestos.modelos?.nombre ?? '—'
                 const marca = det.repuestos.modelos?.marcas?.nombre ?? '—'
+                const distribuidor = det.repuestos.distribuidores?.nombre ?? ''
+                const detalles = det.repuestos.atributos ?? {}
+                const extras = formatearDetalles(distribuidor, detalles)
                 return (
                   <p key={det.id_detalle} className="text-sm text-slate-600">
                     {det.cantidad}x {marca} {modelo}
+                    {extras && ` (${extras})`}
                   </p>
                 )
               })}

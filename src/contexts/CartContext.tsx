@@ -11,6 +11,8 @@ export interface CartItem {
   categoria: string
   modelo_nombre: string
   stock_disponible: number
+  distribuidor: string
+  detalles: Record<string, unknown>
 }
 
 interface CartContextType {

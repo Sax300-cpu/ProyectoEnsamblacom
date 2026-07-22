@@ -251,6 +251,8 @@ export function InventoryTable({ seccion, buscar }: Props) {
                           categoria: r.categorias.nombre,
                           modelo_nombre: modeloNombre,
                           stock_disponible: r.stock,
+                          distribuidor: r.distribuidores.nombre,
+                          detalles: r.atributos ?? {},
                         })
                         openCart()
                       }}

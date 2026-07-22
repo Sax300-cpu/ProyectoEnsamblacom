@@ -66,6 +66,7 @@ export interface Venta {
   metodo_pago: string
   total: number
   notas: string | null
+  fecha_hora: string
   created_at: string
 }
 
