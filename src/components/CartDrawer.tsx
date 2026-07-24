@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { useCart } from '../contexts/CartContext'
 import { formatearDetalles } from '../lib/format'
+import type { EstadoPago, MetodoPago } from '../types/database'
 
 export function CartDrawer() {
   const {
@@ -9,8 +10,8 @@ export function CartDrawer() {
     total, clearCart, enviando, setEnviando, transactionSuccess,
   } = useCart()
   const [alias, setAlias] = useState('')
-  const [estado, setEstado] = useState('Pagado')
-  const [metodoPago, setMetodoPago] = useState('Efectivo')
+  const [estado, setEstado] = useState<EstadoPago>('Pagado')
+  const [metodoPago, setMetodoPago] = useState<MetodoPago>('Efectivo')
   const [nroComprobante, setNroComprobante] = useState('')
   const [tecnicosPrevios, setTecnicosPrevios] = useState<string[]>([])
 
@@ -217,7 +218,7 @@ export function CartDrawer() {
               <div className="grid grid-cols-2 gap-2">
                 <select
                   value={estado}
-                  onChange={(e) => setEstado(e.target.value)}
+                  onChange={(e) => setEstado(e.target.value as EstadoPago)}
                   className="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
                   <option value="Pagado">Pagado</option>
@@ -228,7 +229,7 @@ export function CartDrawer() {
                 <select
                   value={metodoPago}
                   onChange={(e) => {
-                    setMetodoPago(e.target.value)
+                    setMetodoPago(e.target.value as MetodoPago)
                     if (e.target.value !== 'Transferencia') setNroComprobante('')
                   }}
                   className="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"

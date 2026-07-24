@@ -1,3 +1,6 @@
+export type EstadoPago = 'Pagado' | 'Fiado' | 'A Prueba' | 'Garantia'
+export type MetodoPago = 'Efectivo' | 'Transferencia' | 'Pendiente'
+
 export interface Categoria {
   id_categoria: number
   nombre: string
@@ -29,7 +32,7 @@ export interface Distribuidor {
 export interface Repuesto {
   id_repuesto: number
   id_categoria: number
-  id_distribuidor: number
+  id_distribuidor: number | null
   id_modelo_principal: number
   stock: number
   costo_distribuidor: number
@@ -62,12 +65,11 @@ export interface RepuestoConRelaciones extends Repuesto {
 export interface Venta {
   id_venta: number
   alias_tecnico: string
-  estado_pago: string
-  metodo_pago: string
+  estado_pago: EstadoPago
+  metodo_pago: MetodoPago | null
   total: number
   notas: string | null
   fecha_hora: string
-  created_at: string
 }
 
 export interface DetalleVenta {
@@ -77,7 +79,6 @@ export interface DetalleVenta {
   cantidad: number
   precio_unitario: number
   subtotal: number
-  created_at: string
 }
 
 export interface DetalleVentaConRepuesto extends DetalleVenta {
@@ -86,4 +87,13 @@ export interface DetalleVentaConRepuesto extends DetalleVenta {
 
 export interface VentaConDetalles extends Venta {
   detalles_venta: DetalleVentaConRepuesto[]
+}
+
+export interface CuarentenaDefectuoso {
+  id_cuarentena: number
+  id_repuesto: number
+  cantidad: number
+  origen: 'Proveedor' | 'Devolucion Cliente'
+  estado_revision: 'Pendiente de Prueba' | 'Devuelto a Proveedor' | 'Perdida Asumida'
+  fecha_ingreso: string
 }
