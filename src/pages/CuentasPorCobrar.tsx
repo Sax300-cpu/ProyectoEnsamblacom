@@ -222,7 +222,8 @@ function DevolucionModal({
             {detallePrincipal && (() => {
               const m = detallePrincipal.repuestos.modelos?.nombre ?? '—'
               const ma = detallePrincipal.repuestos.modelos?.marcas?.nombre ?? '—'
-              return `${detallePrincipal.cantidad}x ${ma} ${m}`
+              const cat = detallePrincipal.repuestos.categorias?.nombre ?? '—'
+              return `${detallePrincipal.cantidad}x ${cat} ${ma} ${m}`
             })()}
           </span>
         </p>
