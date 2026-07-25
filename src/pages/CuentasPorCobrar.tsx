@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
-import type { VentaConDetalles, MetodoPago } from '../types/database'
+import type { VentaConDetalles } from '../types/database'
 import { formatearDetalles } from '../lib/format'
+import { LiquidarModal } from '../components/LiquidarModal'
 
 function DevolucionModal({
   venta,
@@ -260,97 +261,7 @@ function DevolucionModal({
   )
 }
 
-function LiquidarModal({
-  venta,
-  onClose,
-  onSuccess,
-}: {
-  venta: VentaConDetalles
-  onClose: () => void
-  onSuccess: () => void
-}) {
-  const [metodo, setMetodo] = useState<MetodoPago>('Efectivo')
-  const [comprobante, setComprobante] = useState('')
-  const [enviando, setEnviando] = useState(false)
-  const esTransferencia = metodo === 'Transferencia'
 
-  const handleConfirm = async () => {
-    if (esTransferencia && !comprobante.trim()) return
-    setEnviando(true)
-
-    const notas = esTransferencia
-      ? `Comprobante: ${comprobante.trim()}`
-      : venta.notas
-
-    const { error } = await supabase
-      .from('ventas')
-      .update({
-        estado_pago: 'Pagado',
-        metodo_pago: metodo,
-        notas,
-      })
-      .eq('id_venta', venta.id_venta)
-
-    setEnviando(false)
-    if (!error) onSuccess()
-  }
-
-  return (
-    <>
-      <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center" onClick={onClose}>
-        <div
-          className="bg-white rounded-xl shadow-xl w-full max-w-sm mx-4 p-6 space-y-4"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <h3 className="text-lg font-semibold text-slate-800">Liquidar Venta</h3>
-          <p className="text-sm text-slate-600">
-            Total: <span className="font-semibold font-mono">S/ {venta.total.toFixed(2)}</span>
-          </p>
-
-          <div className="space-y-2">
-            <label className="block text-sm font-medium text-slate-700">Método de Pago</label>
-            <select
-              value={metodo}
-              onChange={(e) => setMetodo(e.target.value as MetodoPago)}
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="Efectivo">Efectivo</option>
-              <option value="Transferencia">Transferencia</option>
-            </select>
-          </div>
-
-          {esTransferencia && (
-            <div className="space-y-2">
-              <label className="block text-sm font-medium text-slate-700">Nro. de Comprobante</label>
-              <input
-                type="text"
-                value={comprobante}
-                onChange={(e) => setComprobante(e.target.value)}
-                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-          )}
-
-          <div className="flex justify-end gap-3 pt-2">
-            <button
-              onClick={onClose}
-              className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors cursor-pointer"
-            >
-              Cancelar
-            </button>
-            <button
-              onClick={handleConfirm}
-              disabled={enviando || (esTransferencia && !comprobante.trim())}
-              className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50 transition-colors cursor-pointer"
-            >
-              {enviando ? 'Procesando…' : 'Confirmar'}
-            </button>
-          </div>
-        </div>
-      </div>
-    </>
-  )
-}
 
 export function CuentasPorCobrar() {
   const [ventas, setVentas] = useState<VentaConDetalles[]>([])
