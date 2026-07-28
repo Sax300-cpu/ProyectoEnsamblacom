@@ -3,6 +3,7 @@ import { Home } from './pages/Home';
 import { Products } from './pages/Products';
 import { Configuration } from './pages/Configuration';
 import { CuentasPorCobrar } from './pages/CuentasPorCobrar';
+import { Reportes } from './pages/Reportes';
 import { Login } from './pages/Login';
 import { CartProvider } from './contexts/CartContext';
 import { CartDrawer } from './components/CartDrawer';
@@ -43,6 +44,7 @@ function AppContent() {
           <Link to="/productos?seccion=pantallas" className="hover:text-blue-200 transition-colors">Pantallas</Link>
           <Link to="/productos?seccion=otros" className="hover:text-blue-200 transition-colors">Repuestos</Link>
           <Link to="/por-cobrar" className="hover:text-blue-200 transition-colors">Por Cobrar</Link>
+          <Link to="/reportes" className="hover:text-blue-200 transition-colors">Reportes</Link>
           {isAdmin && <Link to="/configuracion" className="hover:text-blue-200 transition-colors">⚙️ Configuración</Link>}
           <NavCartButton />
           <button
@@ -59,6 +61,7 @@ function AppContent() {
           <Route path="/" element={<Home />} />
           <Route path="/productos" element={<Products />} />
           <Route path="/por-cobrar" element={<CuentasPorCobrar />} />
+          <Route path="/reportes" element={<Reportes />} />
           {isAdmin && <Route path="/configuracion" element={<Configuration />} />}
           <Route path="*" element={<Home />} />
         </Routes>
