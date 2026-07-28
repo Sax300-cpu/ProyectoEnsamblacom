@@ -2,16 +2,19 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import type { RepuestoConRelaciones } from '../types/database'
 import { useCart } from '../contexts/CartContext'
+import { useAuth } from '../contexts/AuthContext'
+import { EditarPreciosModal } from './EditarPreciosModal'
 
 interface Props {
   seccion: 'pantallas' | 'otros'
   buscar: string
+  refreshKey?: number
 }
 
 const CATEGORIA_PANTALLAS = 1
 const PAGE_SIZE = 10
 
-export function InventoryTable({ seccion, buscar }: Props) {
+export function InventoryTable({ seccion, buscar, refreshKey: stockRefreshKey = 0 }: Props) {
   const [repuestos, setRepuestos] = useState<RepuestoConRelaciones[]>([])
   const [cargando, setCargando] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -20,6 +23,9 @@ export function InventoryTable({ seccion, buscar }: Props) {
 
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE))
   const { addToCart, openCart, refreshKey } = useCart()
+  const { isAdmin } = useAuth()
+  const [editModal, setEditModal] = useState<RepuestoConRelaciones | null>(null)
+  const [localRefresh, setLocalRefresh] = useState(0)
 
   useEffect(() => {
     setCurrentPage(1)
@@ -111,7 +117,7 @@ export function InventoryTable({ seccion, buscar }: Props) {
     }
 
     obtenerRepuestos()
-  }, [seccion, currentPage, buscar, refreshKey])
+  }, [seccion, currentPage, buscar, refreshKey, stockRefreshKey, localRefresh])
 
   if (cargando) {
     return (
@@ -236,28 +242,41 @@ export function InventoryTable({ seccion, buscar }: Props) {
                     {r.precio_cliente.toFixed(2)}
                   </td>
                   <td className="px-4 py-3 text-center">
-                    <button
-                      onClick={() => {
-                        const modeloNombre = r.repuestos_compatibilidad[0]?.modelos.nombre ?? '—'
-                        const marcaNombre = r.repuestos_compatibilidad[0]?.modelos.marcas.nombre ?? '—'
-                        addToCart({
-                          id_repuesto: r.id_repuesto,
-                          cantidad: 1,
-                          precio: r.precio_tecnico,
-                          precio_tecnico: r.precio_tecnico,
-                          precio_cliente: r.precio_cliente,
-                          tipo_precio: 'tecnico',
-                          descripcion: `${marcaNombre} ${modeloNombre}`,
-                          categoria: r.categorias.nombre,
-                          modelo_nombre: modeloNombre,
-                          stock_disponible: r.stock,
-                        })
-                        openCart()
-                      }}
-                      className="rounded-md bg-emerald-600 px-3 py-1 text-xs font-semibold text-white hover:bg-emerald-700 transition-colors cursor-pointer"
-                    >
-                      Vender
-                    </button>
+                    <div className="flex items-center justify-center gap-2">
+                      {isAdmin && (
+                        <button
+                          onClick={() => setEditModal(r)}
+                          className="bg-amber-500 text-white hover:bg-amber-600 px-3 py-1 text-xs font-semibold rounded-md transition-colors cursor-pointer"
+                          title="Editar Precios"
+                        >
+                          Editar
+                        </button>
+                      )}
+                      <button
+                        onClick={() => {
+                          const modeloNombre = r.repuestos_compatibilidad[0]?.modelos.nombre ?? '—'
+                          const marcaNombre = r.repuestos_compatibilidad[0]?.modelos.marcas.nombre ?? '—'
+                          addToCart({
+                            id_repuesto: r.id_repuesto,
+                            cantidad: 1,
+                            precio: r.precio_tecnico,
+                            precio_tecnico: r.precio_tecnico,
+                            precio_cliente: r.precio_cliente,
+                            tipo_precio: 'tecnico',
+                            descripcion: `${marcaNombre} ${modeloNombre}`,
+                            categoria: r.categorias.nombre,
+                            modelo_nombre: modeloNombre,
+                            stock_disponible: r.stock,
+                            distribuidor: r.distribuidores.nombre,
+                            detalles: r.atributos ?? {},
+                          })
+                          openCart()
+                        }}
+                        className="rounded-md bg-emerald-600 px-3 py-1 text-xs font-semibold text-white hover:bg-emerald-700 transition-colors cursor-pointer"
+                      >
+                        Vender
+                      </button>
+                    </div>
                   </td>
                 </tr>
               )
@@ -286,6 +305,17 @@ export function InventoryTable({ seccion, buscar }: Props) {
             Siguiente &gt;
           </button>
         </div>
+      )}
+
+      {editModal && (
+        <EditarPreciosModal
+          repuesto={editModal}
+          onClose={() => setEditModal(null)}
+          onSuccess={() => {
+            setEditModal(null)
+            setLocalRefresh((k) => k + 1)
+          }}
+        />
       )}
     </div>
   )

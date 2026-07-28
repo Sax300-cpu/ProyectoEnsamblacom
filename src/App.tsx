@@ -2,9 +2,12 @@ import { Routes, Route, Link } from 'react-router-dom';
 import { Home } from './pages/Home';
 import { Products } from './pages/Products';
 import { Configuration } from './pages/Configuration';
+import { CuentasPorCobrar } from './pages/CuentasPorCobrar';
+import { Login } from './pages/Login';
 import { CartProvider } from './contexts/CartContext';
 import { CartDrawer } from './components/CartDrawer';
 import { useCart } from './contexts/CartContext';
+import { AuthProvider, useAuth } from './contexts/AuthContext';
 
 function NavCartButton() {
   const { itemCount, openCart } = useCart()
@@ -27,31 +30,52 @@ function NavCartButton() {
   )
 }
 
-function App() {
-  return (
-    <CartProvider>
-      <div className="min-h-screen bg-gray-50">
-        <nav className="bg-blue-700 p-4 text-white shadow-md">
-          <div className="flex gap-6 max-w-6xl mx-auto font-semibold items-center">
-            <Link to="/" className="hover:text-blue-200 transition-colors">Inicio</Link>
-            <Link to="/productos?seccion=pantallas" className="hover:text-blue-200 transition-colors">Pantallas</Link>
-            <Link to="/productos?seccion=otros" className="hover:text-blue-200 transition-colors">Repuestos</Link>
-            <Link to="/configuracion" className="hover:text-blue-200 transition-colors">⚙️ Configuración</Link>
-            <NavCartButton />
-          </div>
-        </nav>
+function AppContent() {
+  const { session, isAdmin, logout } = useAuth()
 
-        <main className="max-w-6xl mx-auto mt-8 bg-white p-6 rounded-lg shadow-sm">
-          <Routes>
-            <Route path="/" element={<Home />} />
-            <Route path="/productos" element={<Products />} />
-            <Route path="/configuracion" element={<Configuration />} />
-          </Routes>
-        </main>
-      </div>
+  if (!session) return <Login />
+
+  return (
+    <div className="min-h-screen bg-gray-50">
+      <nav className="bg-blue-700 p-4 text-white shadow-md">
+        <div className="flex gap-6 max-w-6xl mx-auto font-semibold items-center">
+          <Link to="/" className="hover:text-blue-200 transition-colors">Inicio</Link>
+          <Link to="/productos?seccion=pantallas" className="hover:text-blue-200 transition-colors">Pantallas</Link>
+          <Link to="/productos?seccion=otros" className="hover:text-blue-200 transition-colors">Repuestos</Link>
+          <Link to="/por-cobrar" className="hover:text-blue-200 transition-colors">Por Cobrar</Link>
+          {isAdmin && <Link to="/configuracion" className="hover:text-blue-200 transition-colors">⚙️ Configuración</Link>}
+          <NavCartButton />
+          <button
+            onClick={logout}
+            className="bg-red-600 text-white border border-red-700 hover:bg-red-700 px-4 py-2 rounded-md font-medium transition-colors shadow-sm ml-4 cursor-pointer"
+          >
+            Cerrar Sesión
+          </button>
+        </div>
+      </nav>
+
+      <main className="max-w-6xl mx-auto mt-8 bg-white p-6 rounded-lg shadow-sm">
+        <Routes>
+          <Route path="/" element={<Home />} />
+          <Route path="/productos" element={<Products />} />
+          <Route path="/por-cobrar" element={<CuentasPorCobrar />} />
+          {isAdmin && <Route path="/configuracion" element={<Configuration />} />}
+          <Route path="*" element={<Home />} />
+        </Routes>
+      </main>
 
       <CartDrawer />
-    </CartProvider>
+    </div>
+  )
+}
+
+function App() {
+  return (
+    <AuthProvider>
+      <CartProvider>
+        <AppContent />
+      </CartProvider>
+    </AuthProvider>
   );
 }
 

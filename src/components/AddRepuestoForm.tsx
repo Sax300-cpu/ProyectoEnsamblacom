@@ -195,23 +195,23 @@ export function AddRepuestoForm({ seccion, onSuccess, onCancel }: Props) {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError(null)
-
-    if (form.id_modelo_principal === '') {
-      setError('Selecciona el modelo principal.')
-      return
-    }
-
     setEnviando(true)
 
     const payload = {
-      id_categoria: form.id_categoria as number,
-      id_distribuidor: form.id_distribuidor as number,
-      id_modelo_principal: form.id_modelo_principal as number,
-      stock: form.stock as number,
-      costo_distribuidor: form.costo_distribuidor as number,
-      precio_tecnico: form.precio_tecnico as number,
-      precio_cliente: form.precio_cliente as number,
+      id_categoria: form.id_categoria === '' ? null : Number(form.id_categoria),
+      id_distribuidor: form.id_distribuidor === '' ? null : Number(form.id_distribuidor),
+      id_modelo_principal: form.id_modelo_principal === '' ? null : Number(form.id_modelo_principal),
+      stock: Number(form.stock),
+      costo_distribuidor: Number(form.costo_distribuidor),
+      precio_tecnico: Number(form.precio_tecnico),
+      precio_cliente: Number(form.precio_cliente),
       atributos: atributos as Record<string, unknown>,
+    }
+
+    if (!payload.id_categoria || !payload.id_modelo_principal) {
+      setError('Por favor seleccione una Categoría y un Modelo Principal.')
+      setEnviando(false)
+      return
     }
 
     // 1. Buscar si ya existe (misma categoria + distribuidor + atributos)
@@ -264,7 +264,7 @@ export function AddRepuestoForm({ seccion, onSuccess, onCancel }: Props) {
 
     // 3. Insertar en tabla puente (principal + compatibles)
     const todosModelos = [
-      form.id_modelo_principal as number,
+      payload.id_modelo_principal as number,
       ...form.ids_compatibles,
     ]
     const compatRecords = todosModelos.map((id_modelo) => ({
@@ -321,7 +321,7 @@ export function AddRepuestoForm({ seccion, onSuccess, onCancel }: Props) {
             disabled={seccion === 'pantallas'}
             className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {categorias.length === 0 && <option value="">Seleccionar…</option>}
+            <option value="">Seleccionar…</option>
             {categorias.map((c) => (
               <option key={c.id_categoria} value={c.id_categoria}>{c.nombre}</option>
             ))}
