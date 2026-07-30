@@ -57,6 +57,7 @@ export function Pantallas() {
   const [cargando, setCargando] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [buscar, setBuscar] = useState('')
+  const [soloConBisel, setSoloConBisel] = useState(false)
   const [currentPage, setCurrentPage] = useState(1)
   const [totalCount, setTotalCount] = useState(0)
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE))
@@ -71,7 +72,7 @@ export function Pantallas() {
   /* ── Carga de tabla ── */
   useEffect(() => {
     setCurrentPage(1)
-  }, [buscar])
+  }, [buscar, soloConBisel])
 
   useEffect(() => {
     setCargando(true)
@@ -99,6 +100,11 @@ export function Pantallas() {
           distribuidores!inner ( id_distribuidor, nombre )
         `)
         .eq('id_categoria', CATEGORIA_PANTALLAS)
+
+      if (soloConBisel) {
+        countQuery = countQuery.contains('atributos', { con_bisel: true })
+        dataQuery = dataQuery.contains('atributos', { con_bisel: true })
+      }
 
       if (buscar) {
         const term = `%${buscar.toLowerCase()}%`
@@ -145,7 +151,7 @@ export function Pantallas() {
     }
 
     fetchData()
-  }, [currentPage, buscar, refreshKey])
+  }, [currentPage, buscar, soloConBisel, refreshKey])
 
   return (
     <section>
@@ -159,6 +165,15 @@ export function Pantallas() {
           onChange={(e) => setBuscar(e.target.value)}
           className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
         />
+        <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer select-none shrink-0">
+          <input
+            type="checkbox"
+            checked={soloConBisel}
+            onChange={(e) => setSoloConBisel(e.target.checked)}
+            className="rounded border-slate-300 text-blue-700 focus:ring-blue-500"
+          />
+          Solo con bisel
+        </label>
         <button
           onClick={() => { setEditando(null); setModalOpen(true) }}
           className="rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 transition-colors shrink-0 cursor-pointer"
@@ -373,7 +388,8 @@ interface ModalProps {
 function ModalPantalla({ isAdmin, editando, onClose, onSuccess }: ModalProps) {
   const [form, setForm] = useState<FormState>(() => {
     if (editando) {
-      const idMarca = editando.repuestos_compatibilidad[0]?.modelos.marcas.id_marca ?? ''
+      // Ensure idMarca is a string so comparisons with '' are type-safe
+      const idMarca = editando.repuestos_compatibilidad[0]?.modelos.marcas.id_marca?.toString() ?? ''
       const idsCompatibles = editando.repuestos_compatibilidad
         .map((rc) => rc.id_modelo)
         .filter((id) => id !== editando.id_modelo_principal)
