@@ -4,6 +4,7 @@ import { Products } from './pages/Products';
 import { Pantallas } from './pages/Pantallas';
 import { Repuestos } from './pages/Repuestos';
 import { Clientes } from './pages/Clientes';
+import { Pedidos } from './pages/Pedidos';
 import { Configuration } from './pages/Configuration';
 import { CuentasPorCobrar } from './pages/CuentasPorCobrar';
 import { Reportes } from './pages/Reportes';
@@ -47,6 +48,7 @@ function AppContent() {
           <Link to="/pantallas" className="hover:text-blue-200 transition-colors">Pantallas</Link>
           <Link to="/repuestos" className="hover:text-blue-200 transition-colors">Repuestos</Link>
           <Link to="/clientes" className="hover:text-blue-200 transition-colors">Clientes</Link>
+          <Link to="/pedidos" className="hover:text-blue-200 transition-colors">Pedidos</Link>
           <Link to="/por-cobrar" className="hover:text-blue-200 transition-colors">Por Cobrar</Link>
           <Link to="/reportes" className="hover:text-blue-200 transition-colors">Reportes</Link>
           {isAdmin && <Link to="/configuracion" className="hover:text-blue-200 transition-colors">⚙️ Configuración</Link>}
@@ -67,6 +69,7 @@ function AppContent() {
           <Route path="/pantallas" element={<Pantallas />} />
           <Route path="/repuestos" element={<Repuestos />} />
           <Route path="/clientes" element={<Clientes />} />
+          <Route path="/pedidos" element={<Pedidos />} />
           <Route path="/por-cobrar" element={<CuentasPorCobrar />} />
           <Route path="/reportes" element={<Reportes />} />
           {isAdmin && <Route path="/configuracion" element={<Configuration />} />}

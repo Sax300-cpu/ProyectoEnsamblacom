@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase'
 import type { RepuestoConRelaciones, Categoria, Marca, Modelo, Distribuidor } from '../types/database'
 import { useAuth } from '../contexts/AuthContext'
 import { useCart } from '../contexts/CartContext'
+import { ModalSumaStock } from '../components/ModalSumaStock'
 
 const CATEGORIA_PANTALLAS = 1
 const PAGE_SIZE = 10
@@ -68,6 +69,8 @@ export function Repuestos() {
 
   const [modalOpen, setModalOpen] = useState(false)
   const [editando, setEditando] = useState<RepuestoConRelaciones | null>(null)
+  const [stockModalOpen, setStockModalOpen] = useState(false)
+  const [stockProducto, setStockProducto] = useState<RepuestoConRelaciones | null>(null)
 
   useEffect(() => {
     setCurrentPage(1)
@@ -280,13 +283,21 @@ export function Repuestos() {
                       </td>
                       <td className="px-4 py-3 text-center">
                         <div className="flex items-center justify-center gap-2">
-                          {isAdmin && (
+                          {isAdmin ? (
                             <button
                               onClick={() => { setEditando(r); setModalOpen(true) }}
                               className="bg-amber-500 text-white hover:bg-amber-600 px-3 py-1 text-xs font-semibold rounded-md transition-colors cursor-pointer"
                               title="Editar Precios"
                             >
                               Editar
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => { setStockProducto(r); setStockModalOpen(true) }}
+                              className="bg-emerald-600 text-white hover:bg-emerald-700 px-3 py-1 text-xs font-semibold rounded-md transition-colors cursor-pointer"
+                              title="Agregar Stock"
+                            >
+                              Stock
                             </button>
                           )}
                           <button
@@ -354,6 +365,18 @@ export function Repuestos() {
           onSuccess={() => {
             setModalOpen(false)
             setEditando(null)
+            setRefreshKey((k) => k + 1)
+          }}
+        />
+      )}
+
+      {stockModalOpen && stockProducto && (
+        <ModalSumaStock
+          producto={stockProducto}
+          onClose={() => { setStockModalOpen(false); setStockProducto(null) }}
+          onSuccess={() => {
+            setStockModalOpen(false)
+            setStockProducto(null)
             setRefreshKey((k) => k + 1)
           }}
         />
