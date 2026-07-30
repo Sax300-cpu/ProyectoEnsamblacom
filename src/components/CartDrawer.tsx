@@ -4,6 +4,11 @@ import { useCart } from '../contexts/CartContext'
 import { formatearDetalles } from '../lib/format'
 import type { EstadoPago, MetodoPago } from '../types/database'
 
+interface ClienteOption {
+  id_cliente: number
+  nombre: string
+}
+
 export function CartDrawer() {
   const {
     items, isOpen, closeCart, removeFromCart, updateQuantity, updatePrecio,
@@ -13,23 +18,16 @@ export function CartDrawer() {
   const [estado, setEstado] = useState<EstadoPago>('Pagado')
   const [metodoPago, setMetodoPago] = useState<MetodoPago>('Efectivo')
   const [nroComprobante, setNroComprobante] = useState('')
-  const [tecnicosPrevios, setTecnicosPrevios] = useState<string[]>([])
+  const [clientes, setClientes] = useState<ClienteOption[]>([])
 
   useEffect(() => {
     if (!isOpen) return
     supabase
-      .from('ventas')
-      .select('alias_tecnico')
+      .from('clientes')
+      .select('id_cliente, nombre')
+      .order('nombre', { ascending: true })
       .then(({ data }) => {
-        if (!data) return
-        const unicos = Array.from(
-          new Set(
-            data
-              .map((v) => v.alias_tecnico?.trim())
-              .filter(Boolean),
-          ),
-        ) as string[]
-        setTecnicosPrevios(unicos)
+        if (data) setClientes(data as ClienteOption[])
       })
   }, [isOpen])
 
@@ -40,19 +38,41 @@ export function CartDrawer() {
     if (confirmDisabled) return
     setEnviando(true)
 
+    const nombreAlias = alias.trim()
     const notas = esTransferencia ? `Comprobante: ${nroComprobante.trim()}` : null
 
     try {
+      /* ───── Paso 0: Buscar o crear cliente ───── */
+      const existente = clientes.find(
+        (c) => c.nombre.toLowerCase() === nombreAlias.toLowerCase(),
+      )
+      let idCliente: number | null = existente?.id_cliente ?? null
+
+      if (!existente) {
+        const { data: nuevo, error: errC } = await supabase
+          .from('clientes')
+          .insert({ nombre: nombreAlias })
+          .select('id_cliente')
+          .single()
+
+        if (errC) throw new Error(errC.message)
+        idCliente = nuevo.id_cliente
+        setClientes((prev) => [...prev, { id_cliente: idCliente!, nombre: nombreAlias }])
+      }
+
       /* ───── Paso A: Insertar venta ───── */
+      const ventaPayload: Record<string, unknown> = {
+        alias_tecnico: nombreAlias,
+        estado_pago: estado,
+        metodo_pago: metodoPago,
+        total,
+        notas,
+      }
+      if (idCliente) ventaPayload.id_cliente = idCliente
+
       const { data: venta, error: errV } = await supabase
         .from('ventas')
-        .insert({
-          alias_tecnico: alias.trim(),
-          estado_pago: estado,
-          metodo_pago: metodoPago,
-          total,
-          notas,
-        })
+        .insert(ventaPayload)
         .select('id_venta')
         .single()
 
@@ -206,12 +226,12 @@ export function CartDrawer() {
                 placeholder="Alias del Técnico *"
                 value={alias}
                 onChange={(e) => setAlias(e.target.value)}
-                list="lista-tecnicos"
+                list="lista-clientes"
                 className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
-              <datalist id="lista-tecnicos">
-                {tecnicosPrevios.map((t) => (
-                  <option key={t} value={t} />
+              <datalist id="lista-clientes">
+                {clientes.map((c) => (
+                  <option key={c.id_cliente} value={c.nombre} />
                 ))}
               </datalist>
 
