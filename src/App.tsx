@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { Routes, Route, Link } from 'react-router-dom';
 import { Home } from './pages/Home';
 import { Products } from './pages/Products';
@@ -37,6 +38,7 @@ function NavCartButton() {
 
 function AppContent() {
   const { session, isAdmin, logout } = useAuth()
+  const [ventaExitosaCount, setVentaExitosaCount] = useState(0)
 
   if (!session) return <Login />
 
@@ -66,8 +68,8 @@ function AppContent() {
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/productos" element={<Products />} />
-          <Route path="/pantallas" element={<Pantallas />} />
-          <Route path="/repuestos" element={<Repuestos />} />
+          <Route path="/pantallas" element={<Pantallas refreshSignal={ventaExitosaCount} />} />
+          <Route path="/repuestos" element={<Repuestos refreshSignal={ventaExitosaCount} />} />
           <Route path="/clientes" element={<Clientes />} />
           <Route path="/pedidos" element={<Pedidos />} />
           <Route path="/por-cobrar" element={<CuentasPorCobrar />} />
@@ -77,7 +79,7 @@ function AppContent() {
         </Routes>
       </main>
 
-      <CartDrawer />
+      <CartDrawer onVentaExitosa={() => setVentaExitosaCount((c) => c + 1)} />
     </div>
   )
 }

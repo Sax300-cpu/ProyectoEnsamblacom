@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { supabase } from '../lib/supabase'
 import type { VentaConDetalles, MetodoPago } from '../types/database'
 import { formatearDetalles } from '../lib/format'
+import { generarReciboVenta } from '../utils/generadorPDF'
 
 interface Props {
   venta: VentaConDetalles
@@ -48,6 +49,29 @@ export function LiquidarModal({ venta, onClose, onSuccess }: Props) {
         .eq('id_venta', venta.id_venta)
 
       if (error) throw error
+
+      generarReciboVenta({
+        tituloDocumento: 'COMPROBANTE DE PAGO',
+        nombreCliente: venta.alias_tecnico,
+        fecha: new Date().toLocaleDateString('es-PE', {
+          year: 'numeric', month: 'long', day: 'numeric',
+          hour: '2-digit', minute: '2-digit',
+        }),
+        detallesRepuesto: venta.detalles_venta.map((det) => {
+          const marca = det.repuestos.modelos?.marcas?.nombre ?? '—'
+          const modelo = det.repuestos.modelos?.nombre ?? '—'
+          const categoria = det.repuestos.categorias?.nombre ?? '—'
+          return {
+            categoria,
+            marca,
+            modelo,
+            cantidad: det.cantidad,
+            precioUnitario: det.precio_unitario,
+            subtotal: det.subtotal,
+          }
+        }),
+        total: venta.total,
+      })
 
       setEnviando(false)
       onClose()

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { useCart } from '../contexts/CartContext'
 import { formatearDetalles } from '../lib/format'
+import { generarReciboVenta } from '../utils/generadorPDF'
 import type { EstadoPago, MetodoPago } from '../types/database'
 
 interface ClienteOption {
@@ -9,7 +10,11 @@ interface ClienteOption {
   nombre: string
 }
 
-export function CartDrawer() {
+interface CartDrawerProps {
+  onVentaExitosa?: () => void
+}
+
+export function CartDrawer({ onVentaExitosa }: CartDrawerProps) {
   const {
     items, isOpen, closeCart, removeFromCart, updateQuantity, updatePrecio,
     total, clearCart, enviando, setEnviando, transactionSuccess,
@@ -109,13 +114,55 @@ export function CartDrawer() {
         }
       }
 
-      /* ───── Paso D: Limpiar y refrescar ───── */
+      /* ───── Paso D: Generar PDF según estado ───── */
+      if (estado === 'A Prueba') {
+        /* silencio — no generar PDF */
+      } else if (estado === 'Fiado') {
+        generarReciboVenta({
+          tituloDocumento: 'COMPROBANTE DE CRÉDITO',
+          nombreCliente: nombreAlias,
+          fecha: new Date().toLocaleDateString('es-PE', {
+            year: 'numeric', month: 'long', day: 'numeric',
+            hour: '2-digit', minute: '2-digit',
+          }),
+          detallesRepuesto: items.map((item) => ({
+            categoria: item.categoria,
+            marca: item.marca_nombre,
+            modelo: item.modelo_nombre,
+            cantidad: item.cantidad,
+            precioUnitario: item.precio,
+            subtotal: item.precio * item.cantidad,
+          })),
+          total,
+        })
+      } else {
+        generarReciboVenta({
+          tituloDocumento: 'COMPROBANTE DE VENTA',
+          nombreCliente: nombreAlias,
+          fecha: new Date().toLocaleDateString('es-PE', {
+            year: 'numeric', month: 'long', day: 'numeric',
+            hour: '2-digit', minute: '2-digit',
+          }),
+          detallesRepuesto: items.map((item) => ({
+            categoria: item.categoria,
+            marca: item.marca_nombre,
+            modelo: item.modelo_nombre,
+            cantidad: item.cantidad,
+            precioUnitario: item.precio,
+            subtotal: item.precio * item.cantidad,
+          })),
+          total,
+        })
+      }
+
+      /* ───── Paso E: Limpiar y refrescar ───── */
       clearCart()
       setAlias('')
       setEstado('Pagado')
       setMetodoPago('Efectivo')
       setNroComprobante('')
       transactionSuccess()
+      onVentaExitosa?.()
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Error al procesar la transacción')
     } finally {

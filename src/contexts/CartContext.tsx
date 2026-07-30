@@ -9,6 +9,7 @@ export interface CartItem {
   tipo_precio: 'tecnico' | 'cliente'
   descripcion: string
   categoria: string
+  marca_nombre: string
   modelo_nombre: string
   stock_disponible: number
   distribuidor: string

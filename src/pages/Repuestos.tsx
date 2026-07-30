@@ -53,13 +53,18 @@ const initialForm: FormState = {
   precio_cliente: '',
 }
 
-export function Repuestos() {
+interface RepuestosProps {
+  refreshSignal?: number
+}
+
+export function Repuestos({ refreshSignal }: RepuestosProps) {
   const { isAdmin } = useAuth()
 
   const [repuestos, setRepuestos] = useState<RepuestoConRelaciones[]>([])
   const [cargando, setCargando] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [buscar, setBuscar] = useState('')
+  const [filtroStock, setFiltroStock] = useState<'todos' | 'con_stock' | 'agotados'>('todos')
   const [currentPage, setCurrentPage] = useState(1)
   const [totalCount, setTotalCount] = useState(0)
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE))
@@ -74,7 +79,7 @@ export function Repuestos() {
 
   useEffect(() => {
     setCurrentPage(1)
-  }, [buscar])
+  }, [buscar, filtroStock])
 
   useEffect(() => {
     setCargando(true)
@@ -128,6 +133,14 @@ export function Repuestos() {
         dataQuery = dataQuery.or(orString)
       }
 
+      if (filtroStock === 'con_stock') {
+        countQuery = countQuery.gt('stock', 0)
+        dataQuery = dataQuery.gt('stock', 0)
+      } else if (filtroStock === 'agotados') {
+        countQuery = countQuery.eq('stock', 0)
+        dataQuery = dataQuery.eq('stock', 0)
+      }
+
       const { count } = await countQuery
       setTotalCount(count ?? 0)
 
@@ -148,20 +161,36 @@ export function Repuestos() {
     }
 
     fetchData()
-  }, [currentPage, buscar, refreshKey])
+  }, [currentPage, buscar, filtroStock, refreshKey, refreshSignal])
 
   return (
     <section>
       <h2 className="text-2xl font-semibold text-slate-800 mb-4">Repuestos</h2>
 
-      <div className="flex items-center gap-3 mb-4">
+      <div className="flex items-center gap-3 mb-4 flex-wrap">
         <input
           type="text"
           placeholder="Buscar por modelo, marca o categoría…"
           value={buscar}
           onChange={(e) => setBuscar(e.target.value)}
-          className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="flex-1 min-w-[200px] rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
         />
+        <select
+          value={filtroStock}
+          onChange={(e) => setFiltroStock(e.target.value as 'todos' | 'con_stock' | 'agotados')}
+          className="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 shrink-0"
+        >
+          <option value="todos">Todos</option>
+          <option value="con_stock">Con Stock</option>
+          <option value="agotados">Agotados</option>
+        </select>
+        <button
+          onClick={() => setRefreshKey((k) => k + 1)}
+          className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 transition-colors shrink-0 cursor-pointer"
+          title="Actualizar datos"
+        >
+          ↻
+        </button>
         <button
           onClick={() => { setEditando(null); setModalOpen(true) }}
           className="rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 transition-colors shrink-0 cursor-pointer"
@@ -313,6 +342,7 @@ export function Repuestos() {
                                 tipo_precio: 'tecnico',
                                 descripcion: `${marcaNombre} ${modeloNombre}`,
                                 categoria: r.categorias.nombre,
+                                marca_nombre: marcaNombre,
                                 modelo_nombre: modeloNombre,
                                 stock_disponible: r.stock,
                                 distribuidor: r.distribuidores.nombre,
