@@ -78,7 +78,7 @@ export function EditarPreciosModal({ repuesto, onClose, onSuccess }: Props) {
 
         <div className="space-y-3">
           <div>
-            <label className="block text-xs font-medium text-slate-600 mb-1">Costo (S/)</label>
+            <label className="block text-xs font-medium text-slate-600 mb-1">Costo ($)</label>
             <input
               type="number"
               step="0.01"
@@ -89,7 +89,7 @@ export function EditarPreciosModal({ repuesto, onClose, onSuccess }: Props) {
             />
           </div>
           <div>
-            <label className="block text-xs font-medium text-slate-600 mb-1">Precio Técnico (S/)</label>
+            <label className="block text-xs font-medium text-slate-600 mb-1">Precio Técnico ($)</label>
             <input
               type="number"
               step="0.01"
@@ -100,7 +100,7 @@ export function EditarPreciosModal({ repuesto, onClose, onSuccess }: Props) {
             />
           </div>
           <div>
-            <label className="block text-xs font-medium text-slate-600 mb-1">Precio Cliente (S/)</label>
+            <label className="block text-xs font-medium text-slate-600 mb-1">Precio Cliente ($)</label>
             <input
               type="number"
               step="0.01"

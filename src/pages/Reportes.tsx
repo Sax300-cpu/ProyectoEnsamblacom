@@ -161,7 +161,7 @@ export function Reportes() {
             Ingresos Totales
           </p>
           <p className="text-2xl font-bold text-emerald-800 font-mono">
-            S/ {metricas.ingresosTotales.toFixed(2)}
+            $ {metricas.ingresosTotales.toFixed(2)}
           </p>
         </div>
 
@@ -170,7 +170,7 @@ export function Reportes() {
             Efectivo en Caja
           </p>
           <p className="text-2xl font-bold text-green-800 font-mono">
-            S/ {metricas.efectivoCaja.toFixed(2)}
+            $ {metricas.efectivoCaja.toFixed(2)}
           </p>
         </div>
 
@@ -179,7 +179,7 @@ export function Reportes() {
             Total Transferencias
           </p>
           <p className="text-2xl font-bold text-blue-800 font-mono">
-            S/ {metricas.totalTransferencias.toFixed(2)}
+            $ {metricas.totalTransferencias.toFixed(2)}
           </p>
         </div>
 
@@ -188,7 +188,7 @@ export function Reportes() {
             Dinero en la Calle
           </p>
           <p className="text-2xl font-bold text-orange-800 font-mono">
-            S/ {metricas.dineroCalle.toFixed(2)}
+            $ {metricas.dineroCalle.toFixed(2)}
           </p>
         </div>
       </div>
@@ -224,7 +224,7 @@ export function Reportes() {
                     <td className="px-5 py-3 font-medium text-slate-800">{item.nombre}</td>
                     <td className="px-5 py-3 text-right font-mono text-slate-700">{item.cantidad}</td>
                     <td className="px-5 py-3 text-right font-mono font-semibold text-slate-800">
-                      S/ {item.total.toFixed(2)}
+                      $ {item.total.toFixed(2)}
                     </td>
                   </tr>
                 ))}

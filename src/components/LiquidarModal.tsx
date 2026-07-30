@@ -102,7 +102,7 @@ export function LiquidarModal({ venta, onClose, onSuccess }: Props) {
           </p>
           <p className="pt-1">
             <span className="text-base font-bold text-slate-800 font-mono">
-              Total: S/ {venta.total.toFixed(2)}
+              Total: $ {venta.total.toFixed(2)}
             </span>
           </p>
         </div>

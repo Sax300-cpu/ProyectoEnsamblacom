@@ -365,7 +365,7 @@ export function CuentasPorCobrar() {
           className="w-full sm:w-72 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
         />
         <div className="rounded-lg bg-emerald-50 border border-emerald-200 px-4 py-2 text-sm font-semibold text-emerald-700">
-          Total Filtrado: S/ {totalAcumulado.toFixed(2)}
+          Total Filtrado: $ {totalAcumulado.toFixed(2)}
         </div>
       </div>
 
@@ -374,76 +374,97 @@ export function CuentasPorCobrar() {
           No se encontraron deudas para este técnico.
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 overflow-y-auto max-h-[70vh] p-1">
-          {ventasFiltradas.map((venta) => (
-          <div
-            key={venta.id_venta}
-            className="rounded-xl border border-slate-200 bg-white shadow-sm p-5 space-y-3 h-full"
-          >
-            {/* Header */}
-            <div className="flex items-start justify-between gap-4">
-              <div className="space-y-1">
-                <p className="text-sm text-slate-500">
-                  {formatFecha(venta.fecha_hora)}
-                </p>
-                <p className="text-sm font-medium text-slate-800">
-                  {venta.alias_tecnico}
-                </p>
-              </div>
-              <div className="flex items-center gap-2 shrink-0">
-                <span
-                  className={`inline-block rounded-full px-3 py-0.5 text-xs font-semibold ${
-                    venta.estado_pago === 'Fiado'
-                      ? 'bg-orange-100 text-orange-700'
-                      : 'bg-blue-100 text-blue-700'
-                  }`}
-                >
-                  {venta.estado_pago}
-                </span>
-              </div>
-            </div>
-
-            {/* Items */}
-            <div className="space-y-1">
-              {venta.detalles_venta.map((det) => {
-                const modelo = det.repuestos.modelos?.nombre ?? '—'
-                const marca = det.repuestos.modelos?.marcas?.nombre ?? '—'
-                const categoria = det.repuestos.categorias?.nombre ?? '—'
-                const distribuidor = det.repuestos.distribuidores?.nombre ?? ''
-                const detalles = det.repuestos.atributos ?? {}
-                const extras = formatearDetalles(distribuidor, detalles)
+        <div className="overflow-x-auto rounded-lg border border-slate-200 shadow-sm">
+          <table className="w-full text-xs md:text-sm">
+            <thead>
+              <tr className="bg-slate-100 text-slate-600 uppercase text-xs tracking-wider">
+                <th className="text-left px-3 py-3 font-semibold">FECHA</th>
+                <th className="text-left px-3 py-3 font-semibold">CLIENTE</th>
+                <th className="text-center px-3 py-3 font-semibold">ESTADO</th>
+                <th className="text-left px-3 py-3 font-semibold">CATEGORÍA</th>
+                <th className="text-left px-3 py-3 font-semibold">MODELO</th>
+                <th className="text-center px-3 py-3 font-semibold">CANT</th>
+                <th className="text-right px-3 py-3 font-semibold">DEUDA</th>
+                <th className="text-right px-3 py-3 font-semibold">ACCIONES</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-200">
+              {ventasFiltradas.map((venta) => {
+                const det = venta.detalles_venta[0]
+                const modelo = det?.repuestos.modelos?.nombre ?? '—'
+                const marca = det?.repuestos.modelos?.marcas?.nombre ?? '—'
+                const categoria = det?.repuestos.categorias?.nombre ?? '—'
+                const distribuidor = det?.repuestos.distribuidores?.nombre ?? ''
+                const detalles = det?.repuestos.atributos ?? {}
+                const extras = det ? formatearDetalles(distribuidor, detalles) : ''
                 return (
-                  <p key={det.id_detalle} className="text-sm text-slate-600">
-                    {det.cantidad}x {categoria} {marca} {modelo}
-                    {extras && ` (${extras})`}
-                  </p>
+                  <tr key={venta.id_venta} className="hover:bg-gray-50 transition-colors">
+                    <td className="px-3 py-3 text-slate-500 whitespace-nowrap">
+                      {formatFecha(venta.fecha_hora)}
+                    </td>
+                    <td className="px-3 py-3 font-medium text-slate-800 whitespace-nowrap">
+                      {venta.alias_tecnico}
+                    </td>
+                    <td className="px-3 py-3 text-center">
+                      <span
+                        className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-semibold ${
+                          venta.estado_pago === 'Fiado'
+                            ? 'bg-orange-100 text-orange-700'
+                            : 'bg-blue-100 text-blue-700'
+                        }`}
+                      >
+                        {venta.estado_pago}
+                      </span>
+                    </td>
+                    <td className="px-3 py-3 text-slate-700">
+                      {categoria}
+                    </td>
+                    <td className="px-3 py-3">
+                      {det ? (
+                        <>
+                          <span className="font-medium text-slate-800">
+                            {marca} {modelo}
+                          </span>
+                          {extras && (
+                            <p className="text-xs text-gray-500 mt-0.5">
+                              [{extras}]
+                            </p>
+                          )}
+                        </>
+                      ) : (
+                        <span className="text-slate-400">—</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-3 text-center font-medium text-slate-800">
+                      {det?.cantidad ?? '—'}
+                    </td>
+                    <td className="px-3 py-3 text-right">
+                      <span className="font-bold text-slate-800 whitespace-nowrap">
+                        $ {venta.total.toFixed(2)}
+                      </span>
+                    </td>
+                    <td className="px-3 py-3">
+                      <div className="flex justify-end gap-2">
+                        <button
+                          onClick={() => setDevolviendo(venta)}
+                          className="rounded-lg border border-red-300 px-3 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-50 transition-colors cursor-pointer"
+                        >
+                          Devolución
+                        </button>
+                        <button
+                          onClick={() => setLiquidando(venta)}
+                          className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 transition-colors cursor-pointer"
+                        >
+                          Liquidar
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
                 )
               })}
-            </div>
-
-            {/* Footer */}
-            <div className="flex items-center justify-between pt-2 border-t border-slate-100">
-              <span className="text-base font-semibold text-slate-800 font-mono">
-                S/ {venta.total.toFixed(2)}
-              </span>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => setDevolviendo(venta)}
-                  className="rounded-lg border border-red-300 px-4 py-1.5 text-sm font-semibold text-red-600 hover:bg-red-50 transition-colors cursor-pointer"
-                >
-                  Devolución
-                </button>
-                <button
-                  onClick={() => setLiquidando(venta)}
-                  className="rounded-lg bg-emerald-600 px-4 py-1.5 text-sm font-semibold text-white hover:bg-emerald-700 transition-colors cursor-pointer"
-                >
-                  Liquidar / Pagar
-                </button>
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
+            </tbody>
+          </table>
+        </div>
       )}
 
       {liquidando && (

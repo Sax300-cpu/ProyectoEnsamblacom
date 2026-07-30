@@ -252,7 +252,7 @@ export function CartDrawer({ onVentaExitosa }: CartDrawerProps) {
                     </select>
 
                     <span className="text-sm font-mono font-semibold text-slate-800 min-w-[5rem] text-right">
-                      S/ {(item.precio * item.cantidad).toFixed(2)}
+                      $ {(item.precio * item.cantidad).toFixed(2)}
                     </span>
                   </div>
                 </div>
@@ -265,7 +265,7 @@ export function CartDrawer({ onVentaExitosa }: CartDrawerProps) {
             <div className="border-t border-slate-200 px-5 py-4 space-y-3">
               <div className="flex justify-between text-sm font-semibold text-slate-800">
                 <span>Total:</span>
-                <span className="font-mono">S/ {total.toFixed(2)}</span>
+                <span className="font-mono">$ {total.toFixed(2)}</span>
               </div>
 
               <input

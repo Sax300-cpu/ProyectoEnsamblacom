@@ -949,7 +949,7 @@ function ModalRepuesto({ isAdmin, editando, onClose, onSuccess }: ModalProps) {
           {isAdmin ? (
             <>
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Costo Distribuidor (S/)</label>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Costo Distribuidor ($)</label>
                 <input
                   type="number"
                   name="costo_distribuidor"
@@ -973,7 +973,7 @@ function ModalRepuesto({ isAdmin, editando, onClose, onSuccess }: ModalProps) {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Precio Técnico (S/)</label>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Precio Técnico ($)</label>
                 <input
                   type="number"
                   name="precio_tecnico"
@@ -986,7 +986,7 @@ function ModalRepuesto({ isAdmin, editando, onClose, onSuccess }: ModalProps) {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Precio Cliente (S/)</label>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Precio Cliente ($)</label>
                 <input
                   type="number"
                   name="precio_cliente"
@@ -1001,7 +1001,7 @@ function ModalRepuesto({ isAdmin, editando, onClose, onSuccess }: ModalProps) {
               <div className="sm:col-span-2 -mt-2">
                 {Number(form.costo_distribuidor) > 0 && (
                   <p className="text-xs text-slate-500">
-                    Sugerencia: S/ {Number(form.costo_distribuidor).toFixed(2)} + ({Number(form.costo_distribuidor).toFixed(2)} × {margen}%) = S/ {precioCalculado.toFixed(2)}
+                    Sugerencia: $ {Number(form.costo_distribuidor).toFixed(2)} + ({Number(form.costo_distribuidor).toFixed(2)} × {margen}%) = $ {precioCalculado.toFixed(2)}
                   </p>
                 )}
               </div>
@@ -1009,7 +1009,7 @@ function ModalRepuesto({ isAdmin, editando, onClose, onSuccess }: ModalProps) {
           ) : (
             <>
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Costo Distribuidor (S/)</label>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Costo Distribuidor ($)</label>
                 <input
                   type="number"
                   name="costo_distribuidor"
@@ -1022,7 +1022,7 @@ function ModalRepuesto({ isAdmin, editando, onClose, onSuccess }: ModalProps) {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Precio Cliente (S/)</label>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Precio Cliente ($)</label>
                 <input
                   type="number"
                   name="precio_cliente"
