@@ -509,10 +509,12 @@ function ModalRepuesto({ isAdmin, editando, onClose, onSuccess }: ModalProps) {
 
     if (editando) {
       const updatePayload: Record<string, unknown> = {
+        id_distribuidor: form.id_distribuidor === '' ? null : Number(form.id_distribuidor),
         stock,
         costo_distribuidor: costo,
         precio_tecnico: precioTecnico,
         precio_cliente: precioCliente,
+        atributos: atributos as Record<string, unknown>,
       }
 
       const { error: updErr } = await supabase
@@ -520,11 +522,39 @@ function ModalRepuesto({ isAdmin, editando, onClose, onSuccess }: ModalProps) {
         .update(updatePayload)
         .eq('id_repuesto', editando.id_repuesto)
 
-      setEnviando(false)
       if (updErr) {
+        setEnviando(false)
         setError(updErr.message)
         return
       }
+
+      const todosModelos = [
+        editando.id_modelo_principal,
+        ...form.ids_compatibles,
+      ]
+
+      const { error: delErr } = await supabase
+        .from('repuestos_compatibilidad')
+        .delete()
+        .eq('id_repuesto', editando.id_repuesto)
+
+      if (!delErr && todosModelos.length > 0) {
+        const compatRecords = todosModelos.map((id_modelo) => ({
+          id_repuesto: editando.id_repuesto,
+          id_modelo,
+        }))
+        const { error: compatErr } = await supabase
+          .from('repuestos_compatibilidad')
+          .insert(compatRecords)
+
+        if (compatErr) {
+          setEnviando(false)
+          setError(compatErr.message)
+          return
+        }
+      }
+
+      setEnviando(false)
       onSuccess()
       return
     }
@@ -557,6 +587,7 @@ function ModalRepuesto({ isAdmin, editando, onClose, onSuccess }: ModalProps) {
           costo_distribuidor: payload.costo_distribuidor,
           precio_tecnico: payload.precio_tecnico,
           precio_cliente: payload.precio_cliente,
+          atributos: payload.atributos,
         })
         .eq('id_repuesto', existente.id_repuesto)
 
