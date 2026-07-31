@@ -4,6 +4,7 @@ import type { RepuestoConRelaciones, Marca, Modelo, Distribuidor } from '../type
 import { useAuth } from '../contexts/AuthContext'
 import { useCart } from '../contexts/CartContext'
 import { ModalSumaStock } from '../components/ModalSumaStock'
+import { ModalCuarentena } from '../components/ModalCuarentena'
 import { toast } from '../components/Toaster'
 import { mensajeErrorDuplicado } from '../lib/errores'
 
@@ -103,6 +104,7 @@ export function Pantallas({ refreshSignal }: PantallasProps) {
   const [editando, setEditando] = useState<RepuestoConRelaciones | null>(null)
   const [stockModalOpen, setStockModalOpen] = useState(false)
   const [stockProducto, setStockProducto] = useState<RepuestoConRelaciones | null>(null)
+  const [itemGarantia, setItemGarantia] = useState<RepuestoConRelaciones | null>(null)
 
   /* ── Carga de tabla ── */
   useEffect(() => {
@@ -376,6 +378,13 @@ export function Pantallas({ refreshSignal }: PantallasProps) {
                           >
                             Vender
                           </button>
+                          <button
+                            onClick={() => setItemGarantia(r)}
+                            title="Mover a Garantía"
+                            className="rounded-md bg-amber-500 px-2.5 py-1 text-xs font-semibold text-white hover:bg-amber-600 transition-colors cursor-pointer"
+                          >
+                            ⚠️
+                          </button>
                         </div>
                       </td>
                     </tr>
@@ -431,6 +440,18 @@ export function Pantallas({ refreshSignal }: PantallasProps) {
           onSuccess={() => {
             setStockModalOpen(false)
             setStockProducto(null)
+            setRefreshKey((k) => k + 1)
+          }}
+        />
+      )}
+
+      {/* ───── Modal Mover a Cuarentena ───── */}
+      {itemGarantia && (
+        <ModalCuarentena
+          producto={itemGarantia}
+          onClose={() => setItemGarantia(null)}
+          onSuccess={() => {
+            setItemGarantia(null)
             setRefreshKey((k) => k + 1)
           }}
         />

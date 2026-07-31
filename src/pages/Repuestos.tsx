@@ -4,6 +4,7 @@ import type { RepuestoConRelaciones, Categoria, Marca, Modelo, Distribuidor } fr
 import { useAuth } from '../contexts/AuthContext'
 import { useCart } from '../contexts/CartContext'
 import { ModalSumaStock } from '../components/ModalSumaStock'
+import { ModalCuarentena } from '../components/ModalCuarentena'
 import { toast } from '../components/Toaster'
 import { mensajeErrorDuplicado } from '../lib/errores'
 
@@ -105,6 +106,7 @@ export function Repuestos({ refreshSignal }: RepuestosProps) {
   const [editando, setEditando] = useState<RepuestoConRelaciones | null>(null)
   const [stockModalOpen, setStockModalOpen] = useState(false)
   const [stockProducto, setStockProducto] = useState<RepuestoConRelaciones | null>(null)
+  const [itemGarantia, setItemGarantia] = useState<RepuestoConRelaciones | null>(null)
 
   useEffect(() => {
     setCurrentPage(1)
@@ -388,6 +390,13 @@ export function Repuestos({ refreshSignal }: RepuestosProps) {
                           >
                             Vender
                           </button>
+                          <button
+                            onClick={() => setItemGarantia(r)}
+                            title="Mover a Garantía"
+                            className="rounded-md bg-amber-500 px-2.5 py-1 text-xs font-semibold text-white hover:bg-amber-600 transition-colors cursor-pointer"
+                          >
+                            ⚠️
+                          </button>
                         </div>
                       </td>
                     </tr>
@@ -441,6 +450,17 @@ export function Repuestos({ refreshSignal }: RepuestosProps) {
           onSuccess={() => {
             setStockModalOpen(false)
             setStockProducto(null)
+            setRefreshKey((k) => k + 1)
+          }}
+        />
+      )}
+
+      {itemGarantia && (
+        <ModalCuarentena
+          producto={itemGarantia}
+          onClose={() => setItemGarantia(null)}
+          onSuccess={() => {
+            setItemGarantia(null)
             setRefreshKey((k) => k + 1)
           }}
         />
