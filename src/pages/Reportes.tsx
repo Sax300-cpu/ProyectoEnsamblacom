@@ -77,8 +77,8 @@ export function Reportes() {
             )
           )
         `)
-        .gte('fecha_hora', `${fechaInicio} 00:00:00`)
-        .lte('fecha_hora', `${fechaFin} 23:59:59`)
+        .gte('fecha_hora', new Date(`${fechaInicio}T00:00:00`).toISOString())
+        .lte('fecha_hora', new Date(`${fechaFin}T23:59:59`).toISOString())
         .order('fecha_hora', { ascending: false })
 
       if (data) {
