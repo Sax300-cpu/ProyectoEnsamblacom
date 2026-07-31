@@ -136,7 +136,8 @@ export function generarReportePeriodoPDF(
     const modelo = det?.repuestos.modelos?.nombre ?? '—'
     const cantidad = det?.cantidad ?? 0
     const pago = v.metodo_pago ?? '—'
-    const fecha = new Date(v.fecha_hora).toLocaleDateString('es-PE', {
+    const fechaReal = v.fecha_cobro ? v.fecha_cobro : v.fecha_hora
+    const fecha = new Date(fechaReal).toLocaleDateString('es-PE', {
       day: '2-digit', month: '2-digit', year: 'numeric',
     })
 

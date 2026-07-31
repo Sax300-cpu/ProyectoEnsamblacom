@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { supabase } from '../lib/supabase'
 import type { VentaConDetalles, MetodoPago } from '../types/database'
-import { formatearDetalles } from '../lib/format'
+import { formatearDetalles, formatearFechaComprobante } from '../lib/format'
 import { generarReciboVenta } from '../utils/generadorPDF'
 
 interface Props {
@@ -43,6 +43,7 @@ export function LiquidarModal({ venta, onClose, onSuccess }: Props) {
           estado_pago: 'Pagado',
           metodo_pago: metodo,
           numero_comprobante: esTransferencia ? comprobante.trim() : null,
+          fecha_cobro: 'now()',
         })
         .eq('id_venta', venta.id_venta)
 
@@ -51,10 +52,8 @@ export function LiquidarModal({ venta, onClose, onSuccess }: Props) {
       generarReciboVenta({
         tituloDocumento: 'COMPROBANTE DE PAGO',
         nombreCliente: venta.alias_tecnico,
-        fecha: new Date().toLocaleDateString('es-PE', {
-          year: 'numeric', month: 'long', day: 'numeric',
-          hour: '2-digit', minute: '2-digit',
-        }),
+        fecha:
+          formatearFechaComprobante(venta.fecha_cobro ?? venta.fecha_hora) ?? '—',
         detallesRepuesto: venta.detalles_venta.map((det) => {
           const marca = det.repuestos.modelos?.marcas?.nombre ?? '—'
           const modelo = det.repuestos.modelos?.nombre ?? '—'

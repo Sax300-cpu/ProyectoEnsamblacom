@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import type { VentaConDetalles } from '../types/database'
 import { generarReciboVenta, generarReportePeriodoPDF } from '../utils/generadorPDF'
+import { formatearFechaComprobante } from '../lib/format'
 
 function hoyISO() {
   const now = new Date()
@@ -26,6 +27,7 @@ interface FilaVenta {
   estadoPago: string
   alias: string
   fecha: string
+  fechaCobro: string | null
   precioUnitario: number
 }
 
@@ -41,7 +43,7 @@ interface TopItem {
 export function Reportes() {
   const [fechaInicio, setFechaInicio] = useState(hoyISO())
   const [fechaFin, setFechaFin] = useState(hoyISO())
-  const [vistaActiva, setVistaActiva] = useState<'top10' | 'historial'>('top10')
+  const [vistaActiva, setVistaActiva] = useState<'top10' | 'historial' | 'cobros'>('top10')
   const [ventas, setVentas] = useState<VentaConDetalles[]>([])
   const [deudaGlobal, setDeudaGlobal] = useState(0)
   const [isLoading, setIsLoading] = useState(true)
@@ -50,6 +52,10 @@ export function Reportes() {
   useEffect(() => {
     const fetchData = async () => {
       setIsLoading(true)
+      const sinMilisegundos = (iso: string) => iso.replace(/\.\d{3}Z$/, 'Z')
+      const inicioISO = sinMilisegundos(new Date(`${fechaInicio}T00:00:00`).toISOString())
+      const finISO = sinMilisegundos(new Date(`${fechaFin}T23:59:59`).toISOString())
+
       const { data } = await supabase
         .from('ventas')
         .select(`
@@ -77,8 +83,9 @@ export function Reportes() {
             )
           )
         `)
-        .gte('fecha_hora', new Date(`${fechaInicio}T00:00:00`).toISOString())
-        .lte('fecha_hora', new Date(`${fechaFin}T23:59:59`).toISOString())
+        .or(
+          `and(fecha_hora.gte.${inicioISO},fecha_hora.lte.${finISO}),and(fecha_cobro.gte.${inicioISO},fecha_cobro.lte.${finISO})`,
+        )
         .order('fecha_hora', { ascending: false })
 
       if (data) {
@@ -112,17 +119,31 @@ export function Reportes() {
     const esEstado = (estado: string | undefined, objetivo: string) =>
       (estado || '').toLowerCase() === objetivo
 
+    const sinMilisegundos = (iso: string) => iso.replace(/\.\d{3}Z$/, 'Z')
+    const inicioISO = sinMilisegundos(new Date(`${fechaInicio}T00:00:00`).toISOString())
+    const finISO = sinMilisegundos(new Date(`${fechaFin}T23:59:59`).toISOString())
+
+    const esIngresoDelPeriodo = (v: VentaConDetalles) => {
+      if (v.fecha_cobro && v.fecha_cobro >= inicioISO && v.fecha_cobro <= finISO) {
+        return true
+      }
+      if (!v.fecha_cobro && esEstado(v.estado_pago, 'pagado')) {
+        return v.fecha_hora >= inicioISO && v.fecha_hora <= finISO
+      }
+      return false
+    }
+
     const sumar = (filterFn: (v: VentaConDetalles) => boolean) =>
       ventas
         .filter(filterFn)
         .reduce((sum, v) => sum + parseFloat(String(v.total ?? 0) || '0'), 0)
 
-    const ingresosTotales = sumar((v) => esEstado(v.estado_pago, 'pagado'))
+    const ingresosTotales = sumar(esIngresoDelPeriodo)
     const efectivoCaja = sumar(
-      (v) => esEstado(v.estado_pago, 'pagado') && esEstado(v.metodo_pago, 'efectivo'),
+      (v) => esIngresoDelPeriodo(v) && esEstado(v.metodo_pago, 'efectivo'),
     )
     const totalTransferencias = sumar(
-      (v) => esEstado(v.estado_pago, 'pagado') && esEstado(v.metodo_pago, 'transferencia'),
+      (v) => esIngresoDelPeriodo(v) && esEstado(v.metodo_pago, 'transferencia'),
     )
     return { ingresosTotales, efectivoCaja, totalTransferencias }
   })()
@@ -146,10 +167,8 @@ export function Reportes() {
         numeroComprobante: v.numero_comprobante ?? null,
         estadoPago: v.estado_pago,
         alias: v.alias_tecnico,
-        fecha: new Date(v.fecha_hora).toLocaleDateString('es-PE', {
-          year: 'numeric', month: 'long', day: 'numeric',
-          hour: '2-digit', minute: '2-digit',
-        }),
+        fecha: formatearFechaComprobante(v.fecha_hora) ?? '—',
+        fechaCobro: formatearFechaComprobante(v.fecha_cobro),
         precioUnitario: det.precio_unitario,
       })
     }
@@ -167,6 +186,8 @@ export function Reportes() {
           fila.alias.toLowerCase().includes(busquedaNormalizada),
       )
     : filasVenta
+
+  const filasCobro = filasVenta.filter((fila) => fila.fechaCobro)
 
   const top10: TopItem[] = (() => {
     const map = new Map<number, Omit<TopItem, 'id_repuesto'>>()
@@ -308,6 +329,16 @@ export function Reportes() {
               >
                 Historial Completo
               </button>
+              <button
+                onClick={() => setVistaActiva('cobros')}
+                className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors cursor-pointer ${
+                  vistaActiva === 'cobros'
+                    ? 'bg-white text-blue-700 shadow-sm'
+                    : 'text-slate-500 hover:text-slate-700'
+                }`}
+              >
+                Cobros Realizados
+              </button>
             </div>
           </div>
         </div>
@@ -343,6 +374,83 @@ export function Reportes() {
                       <td className="px-5 py-3 text-center font-mono text-slate-700">{item.cantidad}</td>
                       <td className="px-5 py-3 text-right font-bold text-slate-800 whitespace-nowrap">
                         $ {item.total.toFixed(2)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )
+        ) : vistaActiva === 'cobros' ? (
+          filasCobro.length === 0 ? (
+            <div className="px-5 py-8 text-center text-sm text-slate-500">
+              No hay cobros realizados en este período.
+            </div>
+          ) : (
+            <div className="overflow-x-auto max-h-96 overflow-y-auto relative">
+              <table className="w-full text-sm">
+                <thead className="sticky top-0 bg-white z-10">
+                  <tr className="border-b border-slate-100 text-slate-500 text-xs uppercase tracking-wide">
+                    <th className="text-left px-5 py-3 font-medium w-8">#</th>
+                    <th className="text-left px-5 py-3 font-medium">FECHA</th>
+                    <th className="text-left px-5 py-3 font-medium">CATEGORÍA</th>
+                    <th className="text-left px-5 py-3 font-medium">MODELO</th>
+                    <th className="text-center px-5 py-3 font-medium w-16">CANT</th>
+                    <th className="text-center px-5 py-3 font-medium w-24">PAGO</th>
+                    <th className="text-left px-5 py-3 font-medium">FECHA DE COBRO</th>
+                    <th className="text-right px-5 py-3 font-medium w-28">TOTAL</th>
+                    <th className="text-center px-5 py-3 font-medium w-24">ACCIONES</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filasCobro.map((fila, idx) => (
+                    <tr
+                      key={fila.id_venta}
+                      className="border-b border-slate-50 last:border-0 hover:bg-slate-50 transition-colors"
+                    >
+                      <td className="px-5 py-3 text-slate-400 font-mono">{idx + 1}</td>
+                      <td className="px-5 py-3 text-slate-600">{fila.fecha}</td>
+                      <td className="px-5 py-3 text-slate-700">{fila.categoria}</td>
+                      <td className="px-5 py-3 font-medium text-slate-800">
+                        {fila.marca} {fila.modelo}
+                      </td>
+                      <td className="px-5 py-3 text-center font-mono text-slate-700">{fila.cantidad}</td>
+                      <td className="px-5 py-3 text-center text-slate-600">
+                        {fila.metodoPago}
+                        {fila.metodoPago === 'Transferencia' && fila.numeroComprobante && (
+                          <span className="block text-xs text-gray-500 mt-0.5">
+                            Ref: {fila.numeroComprobante}
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-5 py-3 text-slate-600">{fila.fechaCobro ?? '---'}</td>
+                      <td className="px-5 py-3 text-right font-bold text-slate-800 whitespace-nowrap">
+                        $ {fila.total.toFixed(2)}
+                      </td>
+                      <td className="px-5 py-3 text-center">
+                        <button
+                          onClick={() =>
+                            generarReciboVenta({
+                              tituloDocumento: 'COMPROBANTE DE PAGO',
+                              nombreCliente: fila.alias,
+                              fecha: fila.fechaCobro ?? fila.fecha,
+                              detallesRepuesto: [
+                                {
+                                  categoria: fila.categoria,
+                                  marca: fila.marca,
+                                  modelo: fila.modelo,
+                                  cantidad: fila.cantidad,
+                                  precioUnitario: fila.precioUnitario,
+                                  subtotal: fila.total,
+                                },
+                              ],
+                              total: fila.total,
+                            })
+                          }
+                          className="text-xs font-medium text-blue-600 hover:text-blue-800 hover:underline transition-colors cursor-pointer"
+                        >
+                          Ver PDF
+                        </button>
                       </td>
                     </tr>
                   ))}
