@@ -36,6 +36,15 @@ export function CartDrawer({ onVentaExitosa }: CartDrawerProps) {
       })
   }, [isOpen])
 
+  useEffect(() => {
+    if (estado === 'Fiado' || estado === 'A Prueba') {
+      setMetodoPago('Pendiente')
+    } else {
+      setMetodoPago('Efectivo')
+    }
+  }, [estado])
+
+  const esPagoDiferido = estado === 'Fiado' || estado === 'A Prueba'
   const esTransferencia = metodoPago === 'Transferencia'
   const confirmDisabled = !alias.trim() || enviando || (esTransferencia && !nroComprobante.trim())
 
@@ -44,7 +53,6 @@ export function CartDrawer({ onVentaExitosa }: CartDrawerProps) {
     setEnviando(true)
 
     const nombreAlias = alias.trim()
-    const notas = esTransferencia ? `Comprobante: ${nroComprobante.trim()}` : null
 
     try {
       /* ───── Paso 0: Buscar o crear cliente ───── */
@@ -71,7 +79,8 @@ export function CartDrawer({ onVentaExitosa }: CartDrawerProps) {
         estado_pago: estado,
         metodo_pago: metodoPago,
         total,
-        notas,
+        notas: null,
+        numero_comprobante: esTransferencia ? nroComprobante.trim() : null,
       }
       if (idCliente) ventaPayload.id_cliente = idCliente
 
@@ -295,15 +304,25 @@ export function CartDrawer({ onVentaExitosa }: CartDrawerProps) {
 
                 <select
                   value={metodoPago}
+                  disabled={esPagoDiferido}
                   onChange={(e) => {
                     setMetodoPago(e.target.value as MetodoPago)
                     if (e.target.value !== 'Transferencia') setNroComprobante('')
                   }}
-                  className="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className={`rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                    esPagoDiferido
+                      ? 'bg-gray-100 text-gray-500 cursor-not-allowed'
+                      : 'bg-white border-slate-300'
+                  }`}
                 >
-                  <option value="Efectivo">Efectivo</option>
-                  <option value="Transferencia">Transferencia</option>
-                  <option value="Pendiente">Pendiente</option>
+                  {esPagoDiferido ? (
+                    <option value="Pendiente">Pendiente</option>
+                  ) : (
+                    <>
+                      <option value="Efectivo">Efectivo</option>
+                      <option value="Transferencia">Transferencia</option>
+                    </>
+                  )}
                 </select>
               </div>
 

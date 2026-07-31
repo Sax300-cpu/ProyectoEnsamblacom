@@ -37,7 +37,7 @@ function NavCartButton() {
 }
 
 function AppContent() {
-  const { session, isAdmin, logout } = useAuth()
+  const { session, logout } = useAuth()
   const [ventaExitosaCount, setVentaExitosaCount] = useState(0)
 
   if (!session) return <Login />
@@ -53,7 +53,7 @@ function AppContent() {
           <Link to="/pedidos" className="hover:text-blue-200 transition-colors">Pedidos</Link>
           <Link to="/por-cobrar" className="hover:text-blue-200 transition-colors">Por Cobrar</Link>
           <Link to="/reportes" className="hover:text-blue-200 transition-colors">Reportes</Link>
-          {isAdmin && <Link to="/configuracion" className="hover:text-blue-200 transition-colors">⚙️ Configuración</Link>}
+          <Link to="/configuracion" className="hover:text-blue-200 transition-colors">⚙️ Configuración</Link>
           <NavCartButton />
           <button
             onClick={logout}
@@ -74,7 +74,7 @@ function AppContent() {
           <Route path="/pedidos" element={<Pedidos />} />
           <Route path="/por-cobrar" element={<CuentasPorCobrar />} />
           <Route path="/reportes" element={<Reportes />} />
-          {isAdmin && <Route path="/configuracion" element={<Configuration />} />}
+          <Route path="/configuracion" element={<Configuration />} />
           <Route path="*" element={<Home />} />
         </Routes>
       </main>

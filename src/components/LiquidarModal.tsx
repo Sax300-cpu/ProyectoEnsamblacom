@@ -36,16 +36,14 @@ export function LiquidarModal({ venta, onClose, onSuccess }: Props) {
 
     setEnviando(true)
 
-    const notas = esTransferencia
-      ? venta.notas
-        ? `${venta.notas} | Comprobante: ${comprobante.trim()}`
-        : `Comprobante: ${comprobante.trim()}`
-      : venta.notas
-
     try {
       const { error } = await supabase
         .from('ventas')
-        .update({ estado_pago: 'Pagado', metodo_pago: metodo, notas })
+        .update({
+          estado_pago: 'Pagado',
+          metodo_pago: metodo,
+          numero_comprobante: esTransferencia ? comprobante.trim() : null,
+        })
         .eq('id_venta', venta.id_venta)
 
       if (error) throw error

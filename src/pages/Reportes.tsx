@@ -1,18 +1,37 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import type { VentaConDetalles } from '../types/database'
+import { generarReciboVenta } from '../utils/generadorPDF'
 
 type FiltroTiempo = 'Hoy' | 'Semana' | 'Mes'
 
-interface TopRepuesto {
+interface FilaVenta {
+  id_venta: string
+  categoria: string
+  marca: string
+  modelo: string
+  cantidad: number
+  total: number
+  metodoPago: string
+  numeroComprobante: string | null
+  estadoPago: string
+  alias: string
+  fecha: string
+  precioUnitario: number
+}
+
+interface TopItem {
   id_repuesto: number
-  nombre: string
+  categoria: string
+  marca: string
+  modelo: string
   cantidad: number
   total: number
 }
 
 export function Reportes() {
   const [filtroTiempo, setFiltroTiempo] = useState<FiltroTiempo>('Hoy')
+  const [vistaActiva, setVistaActiva] = useState<'top10' | 'historial'>('top10')
   const [ventas, setVentas] = useState<VentaConDetalles[]>([])
   const [isLoading, setIsLoading] = useState(true)
 
@@ -102,24 +121,53 @@ export function Reportes() {
     return { ingresosTotales, efectivoCaja, totalTransferencias, dineroCalle }
   })()
 
-  const topRepuestos: TopRepuesto[] = (() => {
-    const map = new Map<number, { nombre: string; cantidad: number; total: number }>()
+  const filasVenta: FilaVenta[] = (() => {
+    const result: FilaVenta[] = []
+
+    for (const v of ventas) {
+      if (v.estado_pago !== 'Pagado') continue
+      const det = v.detalles_venta[0]
+      if (!det) continue
+
+      result.push({
+        id_venta: v.id_venta,
+        categoria: det.repuestos.categorias?.nombre ?? '—',
+        marca: det.repuestos.modelos?.marcas?.nombre ?? '—',
+        modelo: det.repuestos.modelos?.nombre ?? '—',
+        cantidad: det.cantidad,
+        total: v.total,
+        metodoPago: v.metodo_pago ?? '—',
+        numeroComprobante: v.numero_comprobante ?? null,
+        estadoPago: v.estado_pago,
+        alias: v.alias_tecnico,
+        fecha: new Date(v.fecha_hora).toLocaleDateString('es-PE', {
+          year: 'numeric', month: 'long', day: 'numeric',
+          hour: '2-digit', minute: '2-digit',
+        }),
+        precioUnitario: det.precio_unitario,
+      })
+    }
+
+    return result
+  })()
+
+  const top10: TopItem[] = (() => {
+    const map = new Map<number, Omit<TopItem, 'id_repuesto'>>()
 
     for (const v of ventas) {
       if (v.estado_pago !== 'Pagado') continue
       for (const det of v.detalles_venta) {
         const id = det.id_repuesto
-        const cat = det.repuestos.categorias?.nombre ?? ''
+        const categoria = det.repuestos.categorias?.nombre ?? ''
         const marca = det.repuestos.modelos?.marcas?.nombre ?? ''
         const modelo = det.repuestos.modelos?.nombre ?? ''
-        const nombre = `${cat} ${marca} ${modelo}`.trim()
 
         const entry = map.get(id)
         if (entry) {
           entry.cantidad += det.cantidad
           entry.total += det.subtotal
         } else {
-          map.set(id, { nombre, cantidad: det.cantidad, total: det.subtotal })
+          map.set(id, { categoria, marca, modelo, cantidad: det.cantidad, total: det.subtotal })
         }
       }
     }
@@ -127,7 +175,7 @@ export function Reportes() {
     return Array.from(map.entries())
       .map(([id_repuesto, d]) => ({ id_repuesto, ...d }))
       .sort((a, b) => b.cantidad - a.cantidad)
-      .slice(0, 5)
+      .slice(0, 10)
   })()
 
   if (isLoading) {
@@ -195,36 +243,141 @@ export function Reportes() {
 
       <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
         <div className="px-5 py-4 border-b border-slate-100">
-          <h3 className="text-base font-semibold text-slate-800">
-            Top 5 Repuestos más vendidos
-          </h3>
+          <div className="flex items-center gap-6">
+            <h3 className="text-base font-semibold text-slate-800">
+              Ventas del Periodo
+            </h3>
+            <div className="flex gap-1 bg-slate-100 rounded-lg p-1">
+              <button
+                onClick={() => setVistaActiva('top10')}
+                className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors cursor-pointer ${
+                  vistaActiva === 'top10'
+                    ? 'bg-white text-blue-700 shadow-sm'
+                    : 'text-slate-500 hover:text-slate-700'
+                }`}
+              >
+                Top 10 Más Vendidos
+              </button>
+              <button
+                onClick={() => setVistaActiva('historial')}
+                className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors cursor-pointer ${
+                  vistaActiva === 'historial'
+                    ? 'bg-white text-blue-700 shadow-sm'
+                    : 'text-slate-500 hover:text-slate-700'
+                }`}
+              >
+                Historial Completo
+              </button>
+            </div>
+          </div>
         </div>
-        {topRepuestos.length === 0 ? (
+
+        {vistaActiva === 'top10' ? (
+          top10.length === 0 ? (
+            <div className="px-5 py-8 text-center text-sm text-slate-500">
+              No hay ventas registradas en este período.
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-slate-100 text-slate-500 text-xs uppercase tracking-wide">
+                    <th className="text-left px-5 py-3 font-medium w-8">#</th>
+                    <th className="text-left px-5 py-3 font-medium">CATEGORÍA</th>
+                    <th className="text-left px-5 py-3 font-medium">MODELO</th>
+                    <th className="text-center px-5 py-3 font-medium w-20">CANTIDAD</th>
+                    <th className="text-right px-5 py-3 font-medium w-28">TOTAL</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {top10.map((item, idx) => (
+                    <tr
+                      key={item.id_repuesto}
+                      className="border-b border-slate-50 last:border-0 hover:bg-slate-50 transition-colors"
+                    >
+                      <td className="px-5 py-3 text-slate-400 font-mono">{idx + 1}</td>
+                      <td className="px-5 py-3 text-slate-700">{item.categoria}</td>
+                      <td className="px-5 py-3 font-medium text-slate-800">
+                        {item.marca} {item.modelo}
+                      </td>
+                      <td className="px-5 py-3 text-center font-mono text-slate-700">{item.cantidad}</td>
+                      <td className="px-5 py-3 text-right font-bold text-slate-800 whitespace-nowrap">
+                        $ {item.total.toFixed(2)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )
+        ) : filasVenta.length === 0 ? (
           <div className="px-5 py-8 text-center text-sm text-slate-500">
             No hay ventas registradas en este período.
           </div>
         ) : (
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto max-h-96 overflow-y-auto relative">
             <table className="w-full text-sm">
-              <thead>
+              <thead className="sticky top-0 bg-white z-10">
                 <tr className="border-b border-slate-100 text-slate-500 text-xs uppercase tracking-wide">
-                  <th className="text-left px-5 py-3 font-medium">#</th>
-                  <th className="text-left px-5 py-3 font-medium">Repuesto</th>
-                  <th className="text-right px-5 py-3 font-medium">Cantidad</th>
-                  <th className="text-right px-5 py-3 font-medium">Total</th>
+                  <th className="text-left px-5 py-3 font-medium w-8">#</th>
+                  <th className="text-left px-5 py-3 font-medium">CATEGORÍA</th>
+                  <th className="text-left px-5 py-3 font-medium">MODELO</th>
+                  <th className="text-center px-5 py-3 font-medium w-20">CANT</th>
+                  <th className="text-center px-5 py-3 font-medium w-24">PAGO</th>
+                  <th className="text-right px-5 py-3 font-medium w-28">TOTAL</th>
+                  <th className="text-center px-5 py-3 font-medium w-24">ACCIONES</th>
                 </tr>
               </thead>
               <tbody>
-                {topRepuestos.map((item, idx) => (
+                {filasVenta.map((fila, idx) => (
                   <tr
-                    key={item.id_repuesto}
+                    key={fila.id_venta}
                     className="border-b border-slate-50 last:border-0 hover:bg-slate-50 transition-colors"
                   >
                     <td className="px-5 py-3 text-slate-400 font-mono">{idx + 1}</td>
-                    <td className="px-5 py-3 font-medium text-slate-800">{item.nombre}</td>
-                    <td className="px-5 py-3 text-right font-mono text-slate-700">{item.cantidad}</td>
-                    <td className="px-5 py-3 text-right font-mono font-semibold text-slate-800">
-                      $ {item.total.toFixed(2)}
+                    <td className="px-5 py-3 text-slate-700">{fila.categoria}</td>
+                    <td className="px-5 py-3 font-medium text-slate-800">
+                      {fila.marca} {fila.modelo}
+                    </td>
+                    <td className="px-5 py-3 text-center font-mono text-slate-700">{fila.cantidad}</td>
+                    <td className="px-5 py-3 text-center text-slate-600">
+                      {fila.metodoPago}
+                      {fila.metodoPago === 'Transferencia' && fila.numeroComprobante && (
+                        <span className="block text-xs text-gray-500 mt-0.5">
+                          Ref: {fila.numeroComprobante}
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-5 py-3 text-right font-bold text-slate-800 whitespace-nowrap">
+                      $ {fila.total.toFixed(2)}
+                    </td>
+                    <td className="px-5 py-3 text-center">
+                      <button
+                        onClick={() =>
+                          generarReciboVenta({
+                            tituloDocumento:
+                              fila.estadoPago === 'Fiado' || fila.estadoPago === 'A Prueba'
+                                ? 'COMPROBANTE DE CRÉDITO'
+                                : 'COMPROBANTE DE VENTA',
+                            nombreCliente: fila.alias,
+                            fecha: fila.fecha,
+                            detallesRepuesto: [
+                              {
+                                categoria: fila.categoria,
+                                marca: fila.marca,
+                                modelo: fila.modelo,
+                                cantidad: fila.cantidad,
+                                precioUnitario: fila.precioUnitario,
+                                subtotal: fila.total,
+                              },
+                            ],
+                            total: fila.total,
+                          })
+                        }
+                        className="text-xs font-medium text-blue-600 hover:text-blue-800 hover:underline transition-colors cursor-pointer"
+                      >
+                        Ver PDF
+                      </button>
                     </td>
                   </tr>
                 ))}

@@ -8,7 +8,7 @@ const secciones = [
     emoji: '🖥️',
   },
   {
-    key: 'otros',
+    key: 'repuestos',
     titulo: 'Repuestos',
     descripcion: 'Baterías, flex y más',
     emoji: '🔧',
