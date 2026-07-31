@@ -1,9 +1,18 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import type { VentaConDetalles } from '../types/database'
-import { generarReciboVenta } from '../utils/generadorPDF'
+import { generarReciboVenta, generarReportePeriodoPDF } from '../utils/generadorPDF'
 
-type FiltroTiempo = 'Hoy' | 'Semana' | 'Mes'
+function hoyISO() {
+  const now = new Date()
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+}
+
+function formatearFecha(iso: string) {
+  return new Date(`${iso}T00:00:00`).toLocaleDateString('es-PE', {
+    day: '2-digit', month: 'long', year: 'numeric',
+  })
+}
 
 interface FilaVenta {
   id_venta: string
@@ -30,32 +39,14 @@ interface TopItem {
 }
 
 export function Reportes() {
-  const [filtroTiempo, setFiltroTiempo] = useState<FiltroTiempo>('Hoy')
+  const [fechaInicio, setFechaInicio] = useState(hoyISO())
+  const [fechaFin, setFechaFin] = useState(hoyISO())
   const [vistaActiva, setVistaActiva] = useState<'top10' | 'historial'>('top10')
   const [ventas, setVentas] = useState<VentaConDetalles[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  const [busquedaHistorial, setBusquedaHistorial] = useState('')
 
   useEffect(() => {
-    const now = new Date()
-    const y = now.getFullYear()
-    const m = now.getMonth()
-    const d = now.getDate()
-
-    const localEnd = new Date(y, m, d, 23, 59, 59, 999)
-
-    let localStart: Date
-    switch (filtroTiempo) {
-      case 'Hoy':
-        localStart = new Date(y, m, d, 0, 0, 0, 0)
-        break
-      case 'Semana':
-        localStart = new Date(y, m, d - 6, 0, 0, 0, 0)
-        break
-      case 'Mes':
-        localStart = new Date(y, m, d - 29, 0, 0, 0, 0)
-        break
-    }
-
     const fetchData = async () => {
       setIsLoading(true)
       const { data } = await supabase
@@ -85,8 +76,8 @@ export function Reportes() {
             )
           )
         `)
-        .gte('fecha_hora', localStart.toISOString())
-        .lte('fecha_hora', localEnd.toISOString())
+        .gte('fecha_hora', `${fechaInicio} 00:00:00`)
+        .lte('fecha_hora', `${fechaFin} 23:59:59`)
         .order('fecha_hora', { ascending: false })
 
       if (data) {
@@ -100,7 +91,7 @@ export function Reportes() {
     }
 
     fetchData()
-  }, [filtroTiempo])
+  }, [fechaInicio, fechaFin])
 
   const metricas = (() => {
     let ingresosTotales = 0
@@ -151,6 +142,17 @@ export function Reportes() {
     return result
   })()
 
+  const busquedaNormalizada = busquedaHistorial.trim().toLowerCase()
+
+  const filasHistorialFiltradas = busquedaNormalizada
+    ? filasVenta.filter(
+        (fila) =>
+          fila.categoria.toLowerCase().includes(busquedaNormalizada) ||
+          fila.modelo.toLowerCase().includes(busquedaNormalizada) ||
+          fila.alias.toLowerCase().includes(busquedaNormalizada),
+      )
+    : filasVenta
+
   const top10: TopItem[] = (() => {
     const map = new Map<number, Omit<TopItem, 'id_repuesto'>>()
 
@@ -192,15 +194,38 @@ export function Reportes() {
         <h2 className="text-2xl font-semibold text-slate-800">
           Cierre de Caja y Reportes
         </h2>
-        <select
-          value={filtroTiempo}
-          onChange={(e) => setFiltroTiempo(e.target.value as FiltroTiempo)}
-          className="w-full sm:w-44 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-        >
-          <option value="Hoy">Hoy</option>
-          <option value="Semana">Últimos 7 días</option>
-          <option value="Mes">Últimos 30 días</option>
-        </select>
+        <div className="flex flex-wrap items-center gap-2">
+          <label className="flex items-center gap-2 text-sm text-slate-600">
+            <span className="font-medium">Desde</span>
+            <input
+              type="date"
+              value={fechaInicio}
+              max={fechaFin}
+              onChange={(e) => setFechaInicio(e.target.value)}
+              className="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+            />
+          </label>
+          <label className="flex items-center gap-2 text-sm text-slate-600">
+            <span className="font-medium">Hasta</span>
+            <input
+              type="date"
+              value={fechaFin}
+              min={fechaInicio}
+              onChange={(e) => setFechaFin(e.target.value)}
+              className="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+            />
+          </label>
+          <button
+            onClick={() => generarReportePeriodoPDF(ventas, fechaInicio, fechaFin)}
+            disabled={ventas.length === 0}
+            className="flex items-center gap-2 rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-50 transition-colors cursor-pointer"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+            </svg>
+            Descargar Reporte PDF
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -310,12 +335,25 @@ export function Reportes() {
               </table>
             </div>
           )
-        ) : filasVenta.length === 0 ? (
-          <div className="px-5 py-8 text-center text-sm text-slate-500">
-            No hay ventas registradas en este período.
-          </div>
         ) : (
-          <div className="overflow-x-auto max-h-96 overflow-y-auto relative">
+          <>
+            <div className="px-5 pt-4">
+              <input
+                type="text"
+                value={busquedaHistorial}
+                onChange={(e) => setBusquedaHistorial(e.target.value)}
+                placeholder="Buscar por categoría, modelo o cliente..."
+                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            {filasHistorialFiltradas.length === 0 ? (
+              <div className="px-5 py-8 text-center text-sm text-slate-500">
+                {busquedaHistorial.trim()
+                  ? 'No se encontraron ventas con ese criterio.'
+                  : 'No hay ventas registradas en este período.'}
+              </div>
+            ) : (
+            <div className="overflow-x-auto max-h-96 overflow-y-auto relative">
             <table className="w-full text-sm">
               <thead className="sticky top-0 bg-white z-10">
                 <tr className="border-b border-slate-100 text-slate-500 text-xs uppercase tracking-wide">
@@ -329,7 +367,7 @@ export function Reportes() {
                 </tr>
               </thead>
               <tbody>
-                {filasVenta.map((fila, idx) => (
+                {filasHistorialFiltradas.map((fila, idx) => (
                   <tr
                     key={fila.id_venta}
                     className="border-b border-slate-50 last:border-0 hover:bg-slate-50 transition-colors"
@@ -384,6 +422,8 @@ export function Reportes() {
               </tbody>
             </table>
           </div>
+            )}
+          </>
         )}
       </div>
     </section>
