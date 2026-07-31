@@ -8,6 +8,7 @@ import { Clientes } from './pages/Clientes';
 import { Pedidos } from './pages/Pedidos';
 import { Configuration } from './pages/Configuration';
 import { CuentasPorCobrar } from './pages/CuentasPorCobrar';
+import { Garantias } from './pages/Garantias';
 import { Reportes } from './pages/Reportes';
 import { Login } from './pages/Login';
 import { CartProvider } from './contexts/CartContext';
@@ -53,6 +54,7 @@ function AppContent() {
           <Link to="/clientes" className="hover:text-blue-200 transition-colors">Clientes</Link>
           <Link to="/pedidos" className="hover:text-blue-200 transition-colors">Pedidos</Link>
           <Link to="/por-cobrar" className="hover:text-blue-200 transition-colors">Por Cobrar</Link>
+          <Link to="/garantias" className="hover:text-blue-200 transition-colors">🛡️ Garantías</Link>
           <Link to="/reportes" className="hover:text-blue-200 transition-colors">Reportes</Link>
           <Link to="/configuracion" className="hover:text-blue-200 transition-colors">⚙️ Configuración</Link>
           <NavCartButton />
@@ -74,6 +76,7 @@ function AppContent() {
           <Route path="/clientes" element={<Clientes />} />
           <Route path="/pedidos" element={<Pedidos />} />
           <Route path="/por-cobrar" element={<CuentasPorCobrar />} />
+          <Route path="/garantias" element={<Garantias />} />
           <Route path="/reportes" element={<Reportes />} />
           <Route path="/configuracion" element={<Configuration />} />
           <Route path="*" element={<Home />} />
