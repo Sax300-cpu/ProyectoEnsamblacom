@@ -3,6 +3,8 @@ import { supabase } from '../lib/supabase'
 import type { VentaConDetalles } from '../types/database'
 import { formatearDetalles } from '../lib/format'
 import { LiquidarModal } from '../components/LiquidarModal'
+import { ModalGarantiaCliente } from '../components/ModalGarantiaCliente'
+import { toast } from '../components/Toaster'
 
 function DevolucionModal({
   venta,
@@ -14,28 +16,18 @@ function DevolucionModal({
   onSuccess: () => void
 }) {
   const [enviando, setEnviando] = useState(false)
-  const [modoDefectuoso, setModoDefectuoso] = useState(false)
-  const [motivoDefecto, setMotivoDefecto] = useState('')
 
   const detallePrincipal = venta.detalles_venta[0]
   const cantidadMax = detallePrincipal?.cantidad ?? 1
   const [cantidadDevuelta, setCantidadDevuelta] = useState(cantidadMax)
 
-  const { precioUnitario, nuevoTotalRestante, esParcial } = (() => {
-    if (!detallePrincipal) return { precioUnitario: 0, nuevoTotalRestante: 0, esParcial: false }
+  const { nuevoTotalRestante, esParcial } = (() => {
+    if (!detallePrincipal) return { nuevoTotalRestante: 0, esParcial: false }
     const pu = detallePrincipal.subtotal / detallePrincipal.cantidad
     const esP = cantidadDevuelta < cantidadMax
     const ntr = (cantidadMax - cantidadDevuelta) * pu
-    return { precioUnitario: pu, nuevoTotalRestante: ntr, esParcial: esP }
+    return { nuevoTotalRestante: ntr, esParcial: esP }
   })()
-
-  const resetYcerrar = () => {
-    setModoDefectuoso(false)
-    setMotivoDefecto('')
-    setEnviando(false)
-    onClose()
-    onSuccess()
-  }
 
   const handleBueno = async () => {
     if (!detallePrincipal) return
@@ -69,144 +61,13 @@ function DevolucionModal({
         if (errDel) throw errDel
       }
 
-      resetYcerrar()
+      toast.success('Devolución procesada y stock actualizado')
+      onSuccess()
     } catch (error) {
       setEnviando(false)
       console.error('Error detallado:', error)
-      alert('Error al procesar: ' + ((error as Error).message || JSON.stringify(error)))
+      toast.error('Error al procesar: ' + ((error as Error).message || JSON.stringify(error)))
     }
-  }
-
-  const handleDefectuoso = async () => {
-    if (!motivoDefecto.trim() || !detallePrincipal) return
-    setEnviando(true)
-
-    try {
-      if (esParcial) {
-        const { data: newVenta, error: errIns } = await supabase
-          .from('ventas')
-          .insert({
-            alias_tecnico: venta.alias_tecnico,
-            estado_pago: 'Garantia',
-            metodo_pago: null,
-            total: cantidadDevuelta * precioUnitario,
-            notas: motivoDefecto.trim(),
-          })
-          .select('id_venta')
-          .single()
-        if (errIns || !newVenta) throw errIns ?? new Error('Error al crear venta de garantía')
-
-        const { error: errDetNew } = await supabase
-          .from('detalles_venta')
-          .insert({
-            id_venta: newVenta.id_venta,
-            id_repuesto: detallePrincipal.id_repuesto,
-            cantidad: cantidadDevuelta,
-            precio_unitario: precioUnitario,
-            subtotal: cantidadDevuelta * precioUnitario,
-          })
-        if (errDetNew) throw errDetNew
-
-        const { error: errDetUpd } = await supabase
-          .from('detalles_venta')
-          .update({ cantidad: cantidadMax - cantidadDevuelta, subtotal: nuevoTotalRestante })
-          .eq('id_detalle', detallePrincipal.id_detalle)
-        if (errDetUpd) throw errDetUpd
-
-        const { error: errVtaUpd } = await supabase
-          .from('ventas')
-          .update({ total: nuevoTotalRestante })
-          .eq('id_venta', venta.id_venta)
-        if (errVtaUpd) throw errVtaUpd
-      } else {
-        const { error: errUpd } = await supabase
-          .from('ventas')
-          .update({ estado_pago: 'Garantia', notas: motivoDefecto.trim() })
-          .eq('id_venta', venta.id_venta)
-        if (errUpd) throw errUpd
-      }
-
-      resetYcerrar()
-    } catch (error) {
-      setEnviando(false)
-      console.error('Error detallado:', error)
-      alert('Error al guardar: ' + ((error as Error).message || JSON.stringify(error)))
-    }
-  }
-
-  const volverAlInicio = () => {
-    setModoDefectuoso(false)
-    setMotivoDefecto('')
-    setCantidadDevuelta(cantidadMax)
-  }
-
-  const inputCantidad = (
-    <div>
-      <label className="block text-xs font-medium text-slate-600 mb-1">Cantidad a devolver</label>
-      <input
-        type="number"
-        min={1}
-        max={cantidadMax}
-        value={cantidadDevuelta}
-        onChange={(e) => {
-          const v = Math.min(cantidadMax, Math.max(1, Number(e.target.value) || 1))
-          setCantidadDevuelta(v)
-        }}
-        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-      />
-    </div>
-  )
-
-  if (modoDefectuoso) {
-    return (
-      <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center">
-        <div
-          className="bg-white rounded-xl shadow-xl w-full max-w-sm mx-4 p-6 space-y-4"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <h3 className="text-lg font-semibold text-slate-800">Registrar Devolución Defectuosa</h3>
-
-          <p className="text-sm text-slate-600">
-            Pieza:{' '}
-            <span className="font-medium text-slate-800">
-              {detallePrincipal && (() => {
-                const m = detallePrincipal.repuestos.modelos?.nombre ?? '—'
-                const ma = detallePrincipal.repuestos.modelos?.marcas?.nombre ?? '—'
-                const cat = detallePrincipal.repuestos.categorias?.nombre ?? '—'
-                return `${detallePrincipal.cantidad}x ${cat} ${ma} ${m}`
-              })()}
-            </span>
-          </p>
-
-          {inputCantidad}
-
-          <textarea
-            value={motivoDefecto}
-            onChange={(e) => setMotivoDefecto(e.target.value)}
-            placeholder="Detalla el problema (Ej: Flex roto por el técnico, táctil no responde, vino trizada…)"
-            rows={4}
-            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-500 resize-none"
-          />
-
-          <div className="flex gap-2 pt-2">
-            <button
-              onClick={volverAlInicio}
-              disabled={enviando}
-              className="flex-1 rounded-lg border border-slate-300 px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors cursor-pointer"
-            >
-              Volver
-            </button>
-            <button
-              onClick={handleDefectuoso}
-              disabled={enviando || !motivoDefecto.trim()}
-              className="flex-1 rounded-lg bg-red-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-red-800 disabled:opacity-50 transition-colors cursor-pointer"
-            >
-              {enviando ? 'Procesando…' : 'Confirmar Registro'}
-            </button>
-          </div>
-        </div>
-      </div>
-    )
   }
 
   return (
@@ -215,7 +76,7 @@ function DevolucionModal({
         className="bg-white rounded-xl shadow-xl w-full max-w-sm mx-4 p-6 space-y-4"
         onClick={(e) => e.stopPropagation()}
       >
-        <h3 className="text-lg font-semibold text-slate-800">Procesar Devolución</h3>
+        <h3 className="text-lg font-semibold text-slate-800">Devolución a Stock</h3>
 
         <p className="text-sm text-slate-600">
           El técnico está devolviendo:{' '}
@@ -229,9 +90,20 @@ function DevolucionModal({
           </span>
         </p>
 
-        {inputCantidad}
-
-        <p className="text-sm text-slate-600">¿En qué estado se encuentra la pieza?</p>
+        <div>
+          <label className="block text-xs font-medium text-slate-600 mb-1">Cantidad a devolver</label>
+          <input
+            type="number"
+            min={1}
+            max={cantidadMax}
+            value={cantidadDevuelta}
+            onChange={(e) => {
+              const v = Math.min(cantidadMax, Math.max(1, Number(e.target.value) || 1))
+              setCantidadDevuelta(v)
+            }}
+            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+        </div>
 
         <div className="flex flex-col gap-2 pt-2">
           <button
@@ -239,14 +111,7 @@ function DevolucionModal({
             disabled={enviando}
             className="w-full rounded-lg bg-blue-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-50 transition-colors cursor-pointer"
           >
-            {enviando ? 'Procesando…' : 'Bueno — Regresar a Stock'}
-          </button>
-          <button
-            onClick={() => setModoDefectuoso(true)}
-            disabled={enviando}
-            className="w-full rounded-lg bg-red-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-red-800 disabled:opacity-50 transition-colors cursor-pointer"
-          >
-            Defectuoso — Descartar
+            {enviando ? 'Procesando…' : 'Regresar a Stock'}
           </button>
           <button
             onClick={onClose}
@@ -268,6 +133,7 @@ export function CuentasPorCobrar() {
   const [cargando, setCargando] = useState(true)
   const [liquidando, setLiquidando] = useState<VentaConDetalles | null>(null)
   const [devolviendo, setDevolviendo] = useState<VentaConDetalles | null>(null)
+  const [garantia, setGarantia] = useState<VentaConDetalles | null>(null)
   const [busqueda, setBusqueda] = useState('')
 
   const ventasFiltradas = ventas.filter((v) =>
@@ -447,9 +313,17 @@ export function CuentasPorCobrar() {
                       <div className="flex justify-end gap-2">
                         <button
                           onClick={() => setDevolviendo(venta)}
-                          className="rounded-lg border border-red-300 px-3 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-50 transition-colors cursor-pointer"
+                          title="Devolver pieza en buen estado a stock"
+                          className="rounded-lg border border-blue-300 px-3 py-1.5 text-xs font-semibold text-blue-600 hover:bg-blue-50 transition-colors cursor-pointer"
                         >
-                          Devolución
+                          Devolver
+                        </button>
+                        <button
+                          onClick={() => setGarantia(venta)}
+                          title="Devolución / Garantía"
+                          className="rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-600 transition-colors cursor-pointer"
+                        >
+                          🛡️
                         </button>
                         <button
                           onClick={() => setLiquidando(venta)}
@@ -484,6 +358,17 @@ export function CuentasPorCobrar() {
           onClose={() => setDevolviendo(null)}
           onSuccess={() => {
             setDevolviendo(null)
+            cargarVentas()
+          }}
+        />
+      )}
+
+      {garantia && (
+        <ModalGarantiaCliente
+          venta={garantia}
+          onClose={() => setGarantia(null)}
+          onSuccess={() => {
+            setGarantia(null)
             cargarVentas()
           }}
         />
