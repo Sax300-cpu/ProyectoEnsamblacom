@@ -12,6 +12,7 @@ import { Reportes } from './pages/Reportes';
 import { Login } from './pages/Login';
 import { CartProvider } from './contexts/CartContext';
 import { CartDrawer } from './components/CartDrawer';
+import { Toaster } from './components/Toaster';
 import { useCart } from './contexts/CartContext';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 
@@ -80,6 +81,7 @@ function AppContent() {
       </main>
 
       <CartDrawer onVentaExitosa={() => setVentaExitosaCount((c) => c + 1)} />
+      <Toaster />
     </div>
   )
 }

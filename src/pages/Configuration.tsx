@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import type { Categoria, Marca, Modelo, Distribuidor } from '../types/database'
+import { toast } from '../components/Toaster'
+import { ConfirmDialog } from '../components/ConfirmDialog'
 
 type Tab = 'categorias' | 'marcas' | 'modelos' | 'distribuidores'
 
@@ -22,6 +24,7 @@ function useCatalog<T extends object>(
   const [editando, setEditando] = useState<T | null>(null)
   const [cargando, setCargando] = useState(false)
   const [form, setForm] = useState<Partial<T>>({})
+  const [borrar, setBorrar] = useState<T | null>(null)
 
   const cargar = async () => {
     const data = await fetchQuery()
@@ -41,6 +44,16 @@ function useCatalog<T extends object>(
     Object.keys(obj).find(k => k.startsWith('id_')) as string
 
   const handleSubmit = async () => {
+    if (!editando) {
+      const nombreNuevo = ((form.nombre as string) ?? '').trim().toLowerCase()
+      const existe = items.some(
+        (i) => ((i as { nombre?: string }).nombre ?? '').trim().toLowerCase() === nombreNuevo,
+      )
+      if (existe) {
+        toast.error('⚠️ Este registro ya existe en la lista.')
+        return
+      }
+    }
     setCargando(true)
     let error
     if (editando) {
@@ -62,26 +75,42 @@ function useCatalog<T extends object>(
     setEditando(item)
   }
 
-  const handleDelete = async (item: T) => {
-    const rec = toRecord(item)
-    const idKey = getIdKey(item)
+  const handleDelete = (item: T) => setBorrar(item)
+
+  const confirmarDelete = async () => {
+    if (!borrar) return
+    const rec = toRecord(borrar)
+    const idKey = getIdKey(borrar)
     const idVal = rec[idKey]
-    const name = (rec.nombre as string) ?? ''
-    if (!window.confirm(`¿Eliminar "${name}"?`)) return
+    setCargando(true)
     const { error } = await supabase.from(table).delete().eq(idKey, idVal)
-    if (!error) {
-      const editRec = editando ? toRecord(editando) : null
-      if (editRec && editRec[idKey] === idVal) resetForm()
-      cargar()
+    setCargando(false)
+    setBorrar(null)
+    if (error) {
+      if (error.code === '23503') {
+        toast.error('❌ No puedes eliminar esto porque ya está siendo usado en el inventario.')
+      } else {
+        toast.error(error.message)
+      }
+      return
     }
+    const editRec = editando ? toRecord(editando) : null
+    if (editRec && editRec[idKey] === idVal) resetForm()
+    cargar()
   }
 
-  return { items, form, setForm, editando, cargando, handleSubmit, handleEdit, handleDelete, resetForm }
+  const nombreBorrar = borrar ? ((borrar as { nombre?: string }).nombre ?? '') : ''
+
+  return {
+    items, form, setForm, editando, cargando,
+    handleSubmit, handleEdit, handleDelete, resetForm,
+    borrar, setBorrar, confirmarDelete, nombreBorrar,
+  }
 }
 
 /* ───── Categorías ───── */
 function TabCategorias() {
-  const { items, form, setForm, editando, cargando, handleSubmit, handleEdit, handleDelete, resetForm } = useCatalog<Categoria>(
+  const { items, form, setForm, editando, cargando, handleSubmit, handleEdit, handleDelete, resetForm, borrar, setBorrar, confirmarDelete, nombreBorrar } = useCatalog<Categoria>(
     'categorias',
     async () => {
       const { data } = await supabase.from('categorias').select('*').order('nombre')
@@ -140,13 +169,21 @@ function TabCategorias() {
           ))}
         </tbody>
       </table>
+      <ConfirmDialog
+        abierto={!!borrar}
+        titulo="Eliminar categoría"
+        mensaje={`¿Eliminar "${nombreBorrar}"?`}
+        confirmarTexto="Eliminar"
+        onCancel={() => setBorrar(null)}
+        onConfirm={confirmarDelete}
+      />
     </div>
   )
 }
 
 /* ───── Marcas ───── */
 function TabMarcas() {
-  const { items, form, setForm, editando, cargando, handleSubmit, handleEdit, handleDelete, resetForm } = useCatalog<Marca>(
+  const { items, form, setForm, editando, cargando, handleSubmit, handleEdit, handleDelete, resetForm, borrar, setBorrar, confirmarDelete, nombreBorrar } = useCatalog<Marca>(
     'marcas',
     async () => {
       const { data } = await supabase.from('marcas').select('*').order('nombre')
@@ -205,6 +242,14 @@ function TabMarcas() {
           ))}
         </tbody>
       </table>
+      <ConfirmDialog
+        abierto={!!borrar}
+        titulo="Eliminar marca"
+        mensaje={`¿Eliminar "${nombreBorrar}"?`}
+        confirmarTexto="Eliminar"
+        onCancel={() => setBorrar(null)}
+        onConfirm={confirmarDelete}
+      />
     </div>
   )
 }
@@ -220,6 +265,7 @@ function TabModelos() {
   const [form, setForm] = useState<Partial<Modelo>>({ id_marca: '' as unknown as number })
   const [modelCurrentPage, setModelCurrentPage] = useState(1)
   const [modelTotalItems, setModelTotalItems] = useState(0)
+  const [borrar, setBorrar] = useState<Modelo | null>(null)
 
   const modelTotalPages = Math.max(1, Math.ceil(modelTotalItems / MODEL_PAGE_SIZE))
 
@@ -262,6 +308,15 @@ function TabModelos() {
     const idMarca = form.id_marca as number | undefined
     const nombre = (form.nombre as string)?.trim()
     if (!idMarca || !nombre) return
+    if (!editando) {
+      const existe = items.some(
+        (i) => i.nombre.trim().toLowerCase() === nombre.toLowerCase(),
+      )
+      if (existe) {
+        toast.error('⚠️ Este registro ya existe en la lista.')
+        return
+      }
+    }
     setCargando(true)
     let error
     if (editando) {
@@ -285,16 +340,25 @@ function TabModelos() {
     setEditando(item)
   }
 
-  const handleDelete = async (item: Modelo) => {
-    if (!window.confirm(`¿Eliminar "${item.nombre}"?`)) return
-    const { error } = await supabase.from('modelos').delete().eq('id_modelo', item.id_modelo)
-    if (!error) {
-      if (editando?.id_modelo === item.id_modelo) resetForm()
-      const stillHasItems = modelCurrentPage > 1 && items.length <= 1
-      cargarModelos(stillHasItems ? modelCurrentPage - 1 : modelCurrentPage)
-    } else if (error.code === '23503') {
-      alert('No se puede eliminar este modelo porque existen repuestos en el inventario asociados a él. Elimine primero los repuestos.')
+  const handleDelete = (item: Modelo) => setBorrar(item)
+
+  const confirmarDelete = async () => {
+    if (!borrar) return
+    setCargando(true)
+    const { error } = await supabase.from('modelos').delete().eq('id_modelo', borrar.id_modelo)
+    setCargando(false)
+    setBorrar(null)
+    if (error) {
+      if (error.code === '23503') {
+        toast.error('❌ No puedes eliminar esto porque ya está siendo usado en el inventario.')
+      } else {
+        toast.error(error.message)
+      }
+      return
     }
+    if (editando?.id_modelo === borrar.id_modelo) resetForm()
+    const stillHasItems = modelCurrentPage > 1 && items.length <= 1
+    cargarModelos(stillHasItems ? modelCurrentPage - 1 : modelCurrentPage)
   }
 
   return (
@@ -379,13 +443,21 @@ function TabModelos() {
           </button>
         </div>
       )}
+      <ConfirmDialog
+        abierto={!!borrar}
+        titulo="Eliminar modelo"
+        mensaje={`¿Eliminar "${borrar?.nombre ?? ''}"?`}
+        confirmarTexto="Eliminar"
+        onCancel={() => setBorrar(null)}
+        onConfirm={confirmarDelete}
+      />
     </div>
   )
 }
 
 /* ───── Distribuidores ───── */
 function TabDistribuidores() {
-  const { items, form, setForm, editando, cargando, handleSubmit, handleEdit, handleDelete, resetForm } = useCatalog<Distribuidor>(
+  const { items, form, setForm, editando, cargando, handleSubmit, handleEdit, handleDelete, resetForm, borrar, setBorrar, confirmarDelete, nombreBorrar } = useCatalog<Distribuidor>(
     'distribuidores',
     async () => {
       const { data } = await supabase.from('distribuidores').select('*').order('nombre')
@@ -453,6 +525,14 @@ function TabDistribuidores() {
           ))}
         </tbody>
       </table>
+      <ConfirmDialog
+        abierto={!!borrar}
+        titulo="Eliminar distribuidor"
+        mensaje={`¿Eliminar "${nombreBorrar}"?`}
+        confirmarTexto="Eliminar"
+        onCancel={() => setBorrar(null)}
+        onConfirm={confirmarDelete}
+      />
     </div>
   )
 }

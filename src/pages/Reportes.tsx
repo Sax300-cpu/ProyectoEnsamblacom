@@ -9,12 +9,6 @@ function hoyISO() {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
 }
 
-function formatearFecha(iso: string) {
-  return new Date(`${iso}T00:00:00`).toLocaleDateString('es-PE', {
-    day: '2-digit', month: 'long', year: 'numeric',
-  })
-}
-
 interface FilaVenta {
   id_venta: string
   categoria: string

@@ -4,6 +4,8 @@ import type { RepuestoConRelaciones, Categoria, Marca, Modelo, Distribuidor } fr
 import { useAuth } from '../contexts/AuthContext'
 import { useCart } from '../contexts/CartContext'
 import { ModalSumaStock } from '../components/ModalSumaStock'
+import { toast } from '../components/Toaster'
+import { mensajeErrorDuplicado } from '../lib/errores'
 
 const CATEGORIA_PANTALLAS = 1
 const PAGE_SIZE = 10
@@ -64,6 +66,8 @@ export function Repuestos({ refreshSignal }: RepuestosProps) {
   const [cargando, setCargando] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [buscar, setBuscar] = useState('')
+  const [filtroCategoria, setFiltroCategoria] = useState('Todas')
+  const [categoriasFiltro, setCategoriasFiltro] = useState<Categoria[]>([])
   const [filtroStock, setFiltroStock] = useState<'todos' | 'con_stock' | 'agotados'>('todos')
   const [currentPage, setCurrentPage] = useState(1)
   const [totalCount, setTotalCount] = useState(0)
@@ -72,6 +76,31 @@ export function Repuestos({ refreshSignal }: RepuestosProps) {
 
   const { addToCart, openCart } = useCart()
 
+  const handleVender = (r: RepuestoConRelaciones) => {
+    if (r.stock <= 0) {
+      toast.error('❌ No hay stock disponible para este artículo.')
+      return
+    }
+    const modeloNombre = r.repuestos_compatibilidad[0]?.modelos.nombre ?? '—'
+    const marcaNombre = r.repuestos_compatibilidad[0]?.modelos.marcas.nombre ?? '—'
+    addToCart({
+      id_repuesto: r.id_repuesto,
+      cantidad: 1,
+      precio: r.precio_tecnico,
+      precio_tecnico: r.precio_tecnico,
+      precio_cliente: r.precio_cliente,
+      tipo_precio: 'tecnico',
+      descripcion: `${marcaNombre} ${modeloNombre}`,
+      categoria: r.categorias.nombre,
+      marca_nombre: marcaNombre,
+      modelo_nombre: modeloNombre,
+      stock_disponible: r.stock,
+      distribuidor: r.distribuidores.nombre,
+      detalles: r.atributos ?? {},
+    })
+    openCart()
+  }
+
   const [modalOpen, setModalOpen] = useState(false)
   const [editando, setEditando] = useState<RepuestoConRelaciones | null>(null)
   const [stockModalOpen, setStockModalOpen] = useState(false)
@@ -79,7 +108,16 @@ export function Repuestos({ refreshSignal }: RepuestosProps) {
 
   useEffect(() => {
     setCurrentPage(1)
-  }, [buscar, filtroStock])
+  }, [buscar, filtroCategoria, filtroStock])
+
+  useEffect(() => {
+    supabase
+      .from('categorias')
+      .select('id_categoria, nombre')
+      .neq('id_categoria', CATEGORIA_PANTALLAS)
+      .order('nombre')
+      .then(({ data }) => setCategoriasFiltro((data ?? []) as Categoria[]))
+  }, [])
 
   useEffect(() => {
     setCargando(true)
@@ -141,6 +179,11 @@ export function Repuestos({ refreshSignal }: RepuestosProps) {
         dataQuery = dataQuery.eq('stock', 0)
       }
 
+      if (filtroCategoria !== 'Todas') {
+        countQuery = countQuery.eq('id_categoria', Number(filtroCategoria))
+        dataQuery = dataQuery.eq('id_categoria', Number(filtroCategoria))
+      }
+
       const { count } = await countQuery
       setTotalCount(count ?? 0)
 
@@ -161,7 +204,7 @@ export function Repuestos({ refreshSignal }: RepuestosProps) {
     }
 
     fetchData()
-  }, [currentPage, buscar, filtroStock, refreshKey, refreshSignal])
+  }, [currentPage, buscar, filtroCategoria, filtroStock, refreshKey, refreshSignal])
 
   return (
     <section>
@@ -175,6 +218,16 @@ export function Repuestos({ refreshSignal }: RepuestosProps) {
           onChange={(e) => setBuscar(e.target.value)}
           className="flex-1 min-w-[200px] rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
         />
+        <select
+          value={filtroCategoria}
+          onChange={(e) => setFiltroCategoria(e.target.value)}
+          className="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 shrink-0"
+        >
+          <option value="Todas">Todas las categorías</option>
+          {categoriasFiltro.map((c) => (
+            <option key={c.id_categoria} value={c.id_categoria}>{c.nombre}</option>
+          ))}
+        </select>
         <select
           value={filtroStock}
           onChange={(e) => setFiltroStock(e.target.value as 'todos' | 'con_stock' | 'agotados')}
@@ -330,26 +383,7 @@ export function Repuestos({ refreshSignal }: RepuestosProps) {
                             </button>
                           )}
                           <button
-                            onClick={() => {
-                              const modeloNombre = r.repuestos_compatibilidad[0]?.modelos.nombre ?? '—'
-                              const marcaNombre = r.repuestos_compatibilidad[0]?.modelos.marcas.nombre ?? '—'
-                              addToCart({
-                                id_repuesto: r.id_repuesto,
-                                cantidad: 1,
-                                precio: r.precio_tecnico,
-                                precio_tecnico: r.precio_tecnico,
-                                precio_cliente: r.precio_cliente,
-                                tipo_precio: 'tecnico',
-                                descripcion: `${marcaNombre} ${modeloNombre}`,
-                                categoria: r.categorias.nombre,
-                                marca_nombre: marcaNombre,
-                                modelo_nombre: modeloNombre,
-                                stock_disponible: r.stock,
-                                distribuidor: r.distribuidores.nombre,
-                                detalles: r.atributos ?? {},
-                              })
-                              openCart()
-                            }}
+                            onClick={() => handleVender(r)}
                             className="rounded-md bg-emerald-600 px-3 py-1 text-xs font-semibold text-white hover:bg-emerald-700 transition-colors cursor-pointer"
                           >
                             Vender
@@ -552,7 +586,6 @@ function ModalRepuesto({ isAdmin, editando, onClose, onSuccess }: ModalProps) {
     const stock = Number(form.stock)
     const costo = Number(form.costo_distribuidor)
     const precioTecnico = Number(form.precio_tecnico)
-    const precioCliente = Number(form.precio_cliente)
 
     if (!form.id_categoria || !form.id_modelo_principal) {
       setError('Seleccione una categoría y un modelo principal.')
@@ -566,7 +599,7 @@ function ModalRepuesto({ isAdmin, editando, onClose, onSuccess }: ModalProps) {
         stock,
         costo_distribuidor: costo,
         precio_tecnico: precioTecnico,
-        precio_cliente: precioCliente,
+        precio_cliente: 0,
         atributos: atributos as Record<string, unknown>,
       }
 
@@ -577,7 +610,7 @@ function ModalRepuesto({ isAdmin, editando, onClose, onSuccess }: ModalProps) {
 
       if (updErr) {
         setEnviando(false)
-        setError(updErr.message)
+        setError(mensajeErrorDuplicado(updErr))
         return
       }
 
@@ -602,7 +635,7 @@ function ModalRepuesto({ isAdmin, editando, onClose, onSuccess }: ModalProps) {
 
         if (compatErr) {
           setEnviando(false)
-          setError(compatErr.message)
+          setError(mensajeErrorDuplicado(compatErr))
           return
         }
       }
@@ -619,37 +652,46 @@ function ModalRepuesto({ isAdmin, editando, onClose, onSuccess }: ModalProps) {
       stock,
       costo_distribuidor: costo,
       precio_tecnico: precioTecnico,
-      precio_cliente: precioCliente,
+      precio_cliente: 0,
       atributos: atributos as Record<string, unknown>,
     }
 
-    const { data: existente } = await supabase
+    const normalizarAtributos = (atrib: Record<string, unknown> | null | undefined): Record<string, unknown> => {
+      if (!atrib) return {}
+      return Object.fromEntries(
+        Object.entries(atrib)
+          .filter(([_, v]) => v !== false && v !== null && v !== undefined && v !== '')
+          .sort(([a], [b]) => a.localeCompare(b))
+          .map(([k, v]) => {
+            const valorNormalizado = typeof v === 'string' ? v.trim().toLowerCase().replace(/\s+/g, ' ') : v
+            return [k, valorNormalizado]
+          }),
+      )
+    }
+
+    const atributosNormalizados = normalizarAtributos(payload.atributos)
+
+    const { data: candidatos, error: candErr } = await supabase
       .from('repuestos')
-      .select('id_repuesto, stock')
+      .select('id_repuesto, atributos')
       .eq('id_categoria', payload.id_categoria)
       .eq('id_distribuidor', payload.id_distribuidor)
       .eq('id_modelo_principal', payload.id_modelo_principal)
-      .eq('atributos', payload.atributos)
-      .maybeSingle()
 
-    if (existente) {
-      const { error: updErr } = await supabase
-        .from('repuestos')
-        .update({
-          stock: existente.stock + payload.stock,
-          costo_distribuidor: payload.costo_distribuidor,
-          precio_tecnico: payload.precio_tecnico,
-          precio_cliente: payload.precio_cliente,
-          atributos: payload.atributos,
-        })
-        .eq('id_repuesto', existente.id_repuesto)
-
+    if (candErr) {
       setEnviando(false)
-      if (updErr) {
-        setError(updErr.message)
-        return
-      }
-      onSuccess()
+      setError(mensajeErrorDuplicado(candErr))
+      return
+    }
+
+    const duplicado = (candidatos ?? []).some((c) =>
+      JSON.stringify(normalizarAtributos((c.atributos ?? {}) as Record<string, unknown>)) ===
+      JSON.stringify(atributosNormalizados),
+    )
+
+    if (duplicado) {
+      setEnviando(false)
+      toast.error('⚠️ Este producto con el mismo distribuidor y detalles ya existe. Búscalo en la lista para sumarle stock.')
       return
     }
 
@@ -661,7 +703,7 @@ function ModalRepuesto({ isAdmin, editando, onClose, onSuccess }: ModalProps) {
 
     if (insertErr) {
       setEnviando(false)
-      setError(insertErr.message)
+      setError(mensajeErrorDuplicado(insertErr))
       return
     }
 
@@ -681,7 +723,7 @@ function ModalRepuesto({ isAdmin, editando, onClose, onSuccess }: ModalProps) {
     setEnviando(false)
 
     if (compatErr) {
-      setError(compatErr.message)
+      setError(mensajeErrorDuplicado(compatErr))
       return
     }
 
@@ -985,19 +1027,6 @@ function ModalRepuesto({ isAdmin, editando, onClose, onSuccess }: ModalProps) {
                   className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Precio Cliente ($)</label>
-                <input
-                  type="number"
-                  name="precio_cliente"
-                  min={0}
-                  step="0.01"
-                  value={form.precio_cliente}
-                  onChange={handleChange}
-                  required
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
               <div className="sm:col-span-2 -mt-2">
                 {Number(form.costo_distribuidor) > 0 && (
                   <p className="text-xs text-slate-500">
@@ -1007,34 +1036,19 @@ function ModalRepuesto({ isAdmin, editando, onClose, onSuccess }: ModalProps) {
               </div>
             </>
           ) : (
-            <>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Costo Distribuidor ($)</label>
-                <input
-                  type="number"
-                  name="costo_distribuidor"
-                  min={0}
-                  step="0.01"
-                  value={form.costo_distribuidor}
-                  onChange={handleChange}
-                  required
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Precio Cliente ($)</label>
-                <input
-                  type="number"
-                  name="precio_cliente"
-                  min={0}
-                  step="0.01"
-                  value={form.precio_cliente}
-                  onChange={handleChange}
-                  required
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-            </>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Costo Distribuidor ($)</label>
+              <input
+                type="number"
+                name="costo_distribuidor"
+                min={0}
+                step="0.01"
+                value={form.costo_distribuidor}
+                onChange={handleChange}
+                required
+                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
           )}
 
           {/* Botones */}

@@ -4,6 +4,8 @@ import type { RepuestoConRelaciones, Marca, Modelo, Distribuidor } from '../type
 import { useAuth } from '../contexts/AuthContext'
 import { useCart } from '../contexts/CartContext'
 import { ModalSumaStock } from '../components/ModalSumaStock'
+import { toast } from '../components/Toaster'
+import { mensajeErrorDuplicado } from '../lib/errores'
 
 const CATEGORIA_PANTALLAS = 1
 const PAGE_SIZE = 10
@@ -70,6 +72,31 @@ export function Pantallas({ refreshSignal }: PantallasProps) {
   const [refreshKey, setRefreshKey] = useState(0)
 
   const { addToCart, openCart } = useCart()
+
+  const handleVender = (r: RepuestoConRelaciones) => {
+    if (r.stock <= 0) {
+      toast.error('❌ No hay stock disponible para este artículo.')
+      return
+    }
+    const modeloNombre = r.repuestos_compatibilidad[0]?.modelos.nombre ?? '—'
+    const marcaNombre = r.repuestos_compatibilidad[0]?.modelos.marcas.nombre ?? '—'
+    addToCart({
+      id_repuesto: r.id_repuesto,
+      cantidad: 1,
+      precio: r.precio_tecnico,
+      precio_tecnico: r.precio_tecnico,
+      precio_cliente: r.precio_cliente,
+      tipo_precio: 'tecnico',
+      descripcion: `${marcaNombre} ${modeloNombre}`,
+      categoria: r.categorias.nombre,
+      marca_nombre: marcaNombre,
+      modelo_nombre: modeloNombre,
+      stock_disponible: r.stock,
+      distribuidor: r.distribuidores.nombre,
+      detalles: r.atributos ?? {},
+    })
+    openCart()
+  }
 
   /* ── Estados de modal ── */
   const [modalOpen, setModalOpen] = useState(false)
@@ -344,26 +371,7 @@ export function Pantallas({ refreshSignal }: PantallasProps) {
                             </button>
                           )}
                           <button
-                            onClick={() => {
-                              const modeloNombre = r.repuestos_compatibilidad[0]?.modelos.nombre ?? '—'
-                              const marcaNombre = r.repuestos_compatibilidad[0]?.modelos.marcas.nombre ?? '—'
-                              addToCart({
-                                id_repuesto: r.id_repuesto,
-                                cantidad: 1,
-                                precio: r.precio_tecnico,
-                                precio_tecnico: r.precio_tecnico,
-                                precio_cliente: r.precio_cliente,
-                                tipo_precio: 'tecnico',
-                                descripcion: `${marcaNombre} ${modeloNombre}`,
-                                categoria: r.categorias.nombre,
-                                marca_nombre: marcaNombre,
-                                modelo_nombre: modeloNombre,
-                                stock_disponible: r.stock,
-                                distribuidor: r.distribuidores.nombre,
-                                detalles: r.atributos ?? {},
-                              })
-                              openCart()
-                            }}
+                            onClick={() => handleVender(r)}
                             className="rounded-md bg-emerald-600 px-3 py-1 text-xs font-semibold text-white hover:bg-emerald-700 transition-colors cursor-pointer"
                           >
                             Vender
@@ -590,7 +598,7 @@ function ModalPantalla({ isAdmin, editando, onClose, onSuccess }: ModalProps) {
 
       if (updErr) {
         setEnviando(false)
-        setError(updErr.message)
+        setError(mensajeErrorDuplicado(updErr))
         return
       }
 
@@ -615,7 +623,7 @@ function ModalPantalla({ isAdmin, editando, onClose, onSuccess }: ModalProps) {
 
         if (compatErr) {
           setEnviando(false)
-          setError(compatErr.message)
+          setError(mensajeErrorDuplicado(compatErr))
           return
         }
       }
@@ -637,33 +645,42 @@ function ModalPantalla({ isAdmin, editando, onClose, onSuccess }: ModalProps) {
       atributos: atributos as Record<string, unknown>,
     }
 
-    const { data: existente } = await supabase
+    const normalizarAtributos = (atrib: Record<string, unknown> | null | undefined): Record<string, unknown> => {
+      if (!atrib) return {}
+      return Object.fromEntries(
+        Object.entries(atrib)
+          .filter(([_, v]) => v !== false && v !== null && v !== undefined && v !== '')
+          .sort(([a], [b]) => a.localeCompare(b))
+          .map(([k, v]) => {
+            const valorNormalizado = typeof v === 'string' ? v.trim().toLowerCase().replace(/\s+/g, ' ') : v
+            return [k, valorNormalizado]
+          }),
+      )
+    }
+
+    const atributosNormalizados = normalizarAtributos(payload.atributos)
+
+    const { data: candidatos, error: candErr } = await supabase
       .from('repuestos')
-      .select('id_repuesto, stock')
+      .select('id_repuesto, atributos')
       .eq('id_categoria', CATEGORIA_PANTALLAS)
       .eq('id_distribuidor', payload.id_distribuidor)
       .eq('id_modelo_principal', payload.id_modelo_principal)
-      .eq('atributos', payload.atributos)
-      .maybeSingle()
 
-    if (existente) {
-      const { error: updErr } = await supabase
-        .from('repuestos')
-        .update({
-          stock: existente.stock + payload.stock,
-          costo_distribuidor: payload.costo_distribuidor,
-          precio_tecnico: payload.precio_tecnico,
-          precio_cliente: payload.precio_cliente,
-          atributos: payload.atributos,
-        })
-        .eq('id_repuesto', existente.id_repuesto)
-
+    if (candErr) {
       setEnviando(false)
-      if (updErr) {
-        setError(updErr.message)
-        return
-      }
-      onSuccess()
+      setError(mensajeErrorDuplicado(candErr))
+      return
+    }
+
+    const duplicado = (candidatos ?? []).some((c) =>
+      JSON.stringify(normalizarAtributos((c.atributos ?? {}) as Record<string, unknown>)) ===
+      JSON.stringify(atributosNormalizados),
+    )
+
+    if (duplicado) {
+      setEnviando(false)
+      toast.error('⚠️ Este producto con el mismo distribuidor y detalles ya existe. Búscalo en la lista para sumarle stock.')
       return
     }
 
@@ -675,7 +692,7 @@ function ModalPantalla({ isAdmin, editando, onClose, onSuccess }: ModalProps) {
 
     if (insertErr) {
       setEnviando(false)
-      setError(insertErr.message)
+      setError(mensajeErrorDuplicado(insertErr))
       return
     }
 
@@ -695,7 +712,7 @@ function ModalPantalla({ isAdmin, editando, onClose, onSuccess }: ModalProps) {
     setEnviando(false)
 
     if (compatErr) {
-      setError(compatErr.message)
+      setError(mensajeErrorDuplicado(compatErr))
       return
     }
 
