@@ -149,7 +149,6 @@ function TabCategorias() {
       <table className="w-full text-sm">
         <thead>
           <tr className="bg-slate-100 text-slate-600 uppercase text-xs tracking-wider">
-            <th className="text-left px-3 py-2 font-semibold">ID</th>
             <th className="text-left px-3 py-2 font-semibold">Nombre</th>
             <th className="text-center px-3 py-2 font-semibold">Acciones</th>
           </tr>
@@ -157,7 +156,6 @@ function TabCategorias() {
         <tbody className="divide-y divide-slate-200">
           {items.map((i) => (
             <tr key={i.id_categoria} className="hover:bg-slate-50">
-              <td className="px-3 py-2 text-slate-500">{i.id_categoria}</td>
               <td className="px-3 py-2 text-slate-700">{i.nombre}</td>
               <td className="px-3 py-2 text-center">
                 <div className="flex items-center justify-center gap-1">
@@ -222,7 +220,6 @@ function TabMarcas() {
       <table className="w-full text-sm">
         <thead>
           <tr className="bg-slate-100 text-slate-600 uppercase text-xs tracking-wider">
-            <th className="text-left px-3 py-2 font-semibold">ID</th>
             <th className="text-left px-3 py-2 font-semibold">Nombre</th>
             <th className="text-center px-3 py-2 font-semibold">Acciones</th>
           </tr>
@@ -230,7 +227,6 @@ function TabMarcas() {
         <tbody className="divide-y divide-slate-200">
           {items.map((i) => (
             <tr key={i.id_marca} className="hover:bg-slate-50">
-              <td className="px-3 py-2 text-slate-500">{i.id_marca}</td>
               <td className="px-3 py-2 text-slate-700">{i.nombre}</td>
               <td className="px-3 py-2 text-center">
                 <div className="flex items-center justify-center gap-1">
@@ -330,7 +326,11 @@ function TabModelos() {
       if (editando) {
         cargarModelos(modelCurrentPage)
       } else {
-        setModelCurrentPage(1)
+        if (modelCurrentPage === 1) {
+          cargarModelos(1)
+        } else {
+          setModelCurrentPage(1)
+        }
       }
     }
   }
@@ -400,7 +400,6 @@ function TabModelos() {
       <table className="w-full text-sm">
         <thead>
           <tr className="bg-slate-100 text-slate-600 uppercase text-xs tracking-wider">
-            <th className="text-left px-3 py-2 font-semibold">ID</th>
             <th className="text-left px-3 py-2 font-semibold">Modelo</th>
             <th className="text-left px-3 py-2 font-semibold">Marca</th>
             <th className="text-center px-3 py-2 font-semibold">Acciones</th>
@@ -409,7 +408,6 @@ function TabModelos() {
         <tbody className="divide-y divide-slate-200">
           {items.map((i) => (
             <tr key={i.id_modelo} className="hover:bg-slate-50">
-              <td className="px-3 py-2 text-slate-500">{i.id_modelo}</td>
               <td className="px-3 py-2 text-slate-700">{i.nombre}</td>
               <td className="px-3 py-2 text-slate-700">{i.marcas?.nombre}</td>
               <td className="px-3 py-2 text-center">
@@ -503,7 +501,6 @@ function TabDistribuidores() {
       <table className="w-full text-sm">
         <thead>
           <tr className="bg-slate-100 text-slate-600 uppercase text-xs tracking-wider">
-            <th className="text-left px-3 py-2 font-semibold">ID</th>
             <th className="text-left px-3 py-2 font-semibold">Nombre</th>
             <th className="text-left px-3 py-2 font-semibold">Contacto</th>
             <th className="text-center px-3 py-2 font-semibold">Acciones</th>
@@ -512,7 +509,6 @@ function TabDistribuidores() {
         <tbody className="divide-y divide-slate-200">
           {items.map((i) => (
             <tr key={i.id_distribuidor} className="hover:bg-slate-50">
-              <td className="px-3 py-2 text-slate-500">{i.id_distribuidor}</td>
               <td className="px-3 py-2 text-slate-700">{i.nombre}</td>
               <td className="px-3 py-2 text-slate-700">{i.contacto ?? '—'}</td>
               <td className="px-3 py-2 text-center">

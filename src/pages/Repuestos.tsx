@@ -538,6 +538,7 @@ function ModalRepuesto({ isAdmin, editando, onClose, onSuccess }: ModalProps) {
     (c) => c.id_categoria === form.id_categoria,
   )
   const nombreCategoria = categoriaSeleccionada?.nombre?.toLowerCase() ?? ''
+  const esBaterias = nombreCategoria === 'baterías'
   const camposAtributos = definicionesAtributos[nombreCategoria] ?? []
 
   const handleChange = (e: React.ChangeEvent<HTMLSelectElement | HTMLInputElement>) => {
@@ -547,6 +548,11 @@ function ModalRepuesto({ isAdmin, editando, onClose, onSuccess }: ModalProps) {
       const atrName = name.slice(4)
       if (type === 'checkbox') {
         setAtributos((prev) => ({ ...prev, [atrName]: (e.target as HTMLInputElement).checked }))
+      } else if (value === '') {
+        setAtributos((prev) => {
+          const { [atrName]: _omit, ...rest } = prev
+          return rest
+        })
       } else {
         setAtributos((prev) => ({ ...prev, [atrName]: value }))
       }
@@ -969,6 +975,30 @@ function ModalRepuesto({ isAdmin, editando, onClose, onSuccess }: ModalProps) {
                     )}
                   </div>
                 ))}
+              </div>
+            </div>
+          )}
+
+          {/* Calidad específica para Baterías */}
+          {esBaterias && (
+            <div className="sm:col-span-2">
+              <label className="block text-sm font-medium text-slate-700 mb-1">
+                Detalles del repuesto
+              </label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 border border-slate-200 rounded-lg p-3">
+                <div>
+                  <label className="block text-xs text-slate-500 mb-0.5">Calidad</label>
+                  <select
+                    name="atr_calidad"
+                    value={(atributos.calidad as string) ?? ''}
+                    onChange={handleChange}
+                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="">Seleccionar calidad...</option>
+                    <option value="Deji">Deji</option>
+                    <option value="ORIG">ORIG</option>
+                  </select>
+                </div>
               </div>
             </div>
           )}
