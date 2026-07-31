@@ -125,7 +125,11 @@ export function generarReportePeriodoPDF(
   let totalTransferencia = 0
   let granTotal = 0
 
-  const cuerpo = ventas.map((v) => {
+  const ventasValidas = ventas.filter(
+    (v) => v.total > 0 && v.detalles_venta.length > 0,
+  )
+
+  const cuerpo = ventasValidas.map((v) => {
     const det = v.detalles_venta[0]
     const categoria = det?.repuestos.categorias?.nombre ?? '—'
     const marca = det?.repuestos.modelos?.marcas?.nombre ?? '—'

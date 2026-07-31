@@ -43,6 +43,7 @@ export function Reportes() {
   const [fechaFin, setFechaFin] = useState(hoyISO())
   const [vistaActiva, setVistaActiva] = useState<'top10' | 'historial'>('top10')
   const [ventas, setVentas] = useState<VentaConDetalles[]>([])
+  const [deudaGlobal, setDeudaGlobal] = useState(0)
   const [isLoading, setIsLoading] = useState(true)
   const [busquedaHistorial, setBusquedaHistorial] = useState('')
 
@@ -93,23 +94,37 @@ export function Reportes() {
     fetchData()
   }, [fechaInicio, fechaFin])
 
+  useEffect(() => {
+    supabase
+      .from('ventas')
+      .select('total')
+      .in('estado_pago', ['Fiado', 'A Prueba'])
+      .then(({ data }) => {
+        const total = (data ?? []).reduce(
+          (sum, v) => sum + parseFloat(String(v.total ?? 0) || '0'),
+          0,
+        )
+        setDeudaGlobal(total)
+      })
+  }, [])
+
   const metricas = (() => {
-    let ingresosTotales = 0
-    let efectivoCaja = 0
-    let totalTransferencias = 0
-    let dineroCalle = 0
+    const esEstado = (estado: string | undefined, objetivo: string) =>
+      (estado || '').toLowerCase() === objetivo
 
-    for (const v of ventas) {
-      if (v.estado_pago === 'Pagado') {
-        ingresosTotales += v.total
-        if (v.metodo_pago === 'Efectivo') efectivoCaja += v.total
-        else if (v.metodo_pago === 'Transferencia') totalTransferencias += v.total
-      } else if (v.estado_pago === 'Fiado' || v.estado_pago === 'A Prueba') {
-        dineroCalle += v.total
-      }
-    }
+    const sumar = (filterFn: (v: VentaConDetalles) => boolean) =>
+      ventas
+        .filter(filterFn)
+        .reduce((sum, v) => sum + parseFloat(String(v.total ?? 0) || '0'), 0)
 
-    return { ingresosTotales, efectivoCaja, totalTransferencias, dineroCalle }
+    const ingresosTotales = sumar((v) => esEstado(v.estado_pago, 'pagado'))
+    const efectivoCaja = sumar(
+      (v) => esEstado(v.estado_pago, 'pagado') && esEstado(v.metodo_pago, 'efectivo'),
+    )
+    const totalTransferencias = sumar(
+      (v) => esEstado(v.estado_pago, 'pagado') && esEstado(v.metodo_pago, 'transferencia'),
+    )
+    return { ingresosTotales, efectivoCaja, totalTransferencias }
   })()
 
   const filasVenta: FilaVenta[] = (() => {
@@ -258,10 +273,10 @@ export function Reportes() {
 
         <div className="rounded-xl border border-orange-200 bg-orange-50 p-5 space-y-1">
           <p className="text-xs font-semibold uppercase tracking-wide text-orange-600">
-            Dinero en la Calle
+            Cuentas por Cobrar
           </p>
           <p className="text-2xl font-bold text-orange-800 font-mono">
-            $ {metricas.dineroCalle.toFixed(2)}
+            $ {deudaGlobal.toFixed(2)}
           </p>
         </div>
       </div>

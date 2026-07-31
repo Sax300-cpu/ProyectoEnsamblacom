@@ -46,9 +46,10 @@ export function CartDrawer({ onVentaExitosa }: CartDrawerProps) {
 
   const esPagoDiferido = estado === 'Fiado' || estado === 'A Prueba'
   const esTransferencia = metodoPago === 'Transferencia'
-  const confirmDisabled = !alias.trim() || enviando || (esTransferencia && !nroComprobante.trim())
+  const confirmDisabled = items.length === 0 || !alias.trim() || enviando || (esTransferencia && !nroComprobante.trim())
 
   const handleConfirm = async () => {
+    if (items.length === 0) return
     if (confirmDisabled) return
     setEnviando(true)
 
