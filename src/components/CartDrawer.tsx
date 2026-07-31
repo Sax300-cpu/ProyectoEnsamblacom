@@ -2,9 +2,19 @@ import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { useCart } from '../contexts/CartContext'
 import { formatearDetalles } from '../lib/format'
+import { generarReciboVenta } from '../utils/generadorPDF'
 import type { EstadoPago, MetodoPago } from '../types/database'
 
-export function CartDrawer() {
+interface ClienteOption {
+  id_cliente: number
+  nombre: string
+}
+
+interface CartDrawerProps {
+  onVentaExitosa?: () => void
+}
+
+export function CartDrawer({ onVentaExitosa }: CartDrawerProps) {
   const {
     items, isOpen, closeCart, removeFromCart, updateQuantity, updatePrecio,
     total, clearCart, enviando, setEnviando, transactionSuccess,
@@ -13,46 +23,71 @@ export function CartDrawer() {
   const [estado, setEstado] = useState<EstadoPago>('Pagado')
   const [metodoPago, setMetodoPago] = useState<MetodoPago>('Efectivo')
   const [nroComprobante, setNroComprobante] = useState('')
-  const [tecnicosPrevios, setTecnicosPrevios] = useState<string[]>([])
+  const [clientes, setClientes] = useState<ClienteOption[]>([])
 
   useEffect(() => {
     if (!isOpen) return
     supabase
-      .from('ventas')
-      .select('alias_tecnico')
+      .from('clientes')
+      .select('id_cliente, nombre')
+      .order('nombre', { ascending: true })
       .then(({ data }) => {
-        if (!data) return
-        const unicos = Array.from(
-          new Set(
-            data
-              .map((v) => v.alias_tecnico?.trim())
-              .filter(Boolean),
-          ),
-        ) as string[]
-        setTecnicosPrevios(unicos)
+        if (data) setClientes(data as ClienteOption[])
       })
   }, [isOpen])
 
+  useEffect(() => {
+    if (estado === 'Fiado' || estado === 'A Prueba') {
+      setMetodoPago('Pendiente')
+    } else {
+      setMetodoPago('Efectivo')
+    }
+  }, [estado])
+
+  const esPagoDiferido = estado === 'Fiado' || estado === 'A Prueba'
   const esTransferencia = metodoPago === 'Transferencia'
-  const confirmDisabled = !alias.trim() || enviando || (esTransferencia && !nroComprobante.trim())
+  const confirmDisabled = items.length === 0 || !alias.trim() || enviando || (esTransferencia && !nroComprobante.trim())
 
   const handleConfirm = async () => {
+    if (items.length === 0) return
     if (confirmDisabled) return
     setEnviando(true)
 
-    const notas = esTransferencia ? `Comprobante: ${nroComprobante.trim()}` : null
+    const nombreAlias = alias.trim()
 
     try {
+      /* ───── Paso 0: Buscar o crear cliente ───── */
+      const existente = clientes.find(
+        (c) => c.nombre.toLowerCase() === nombreAlias.toLowerCase(),
+      )
+      let idCliente: number | null = existente?.id_cliente ?? null
+
+      if (!existente) {
+        const { data: nuevo, error: errC } = await supabase
+          .from('clientes')
+          .insert({ nombre: nombreAlias })
+          .select('id_cliente')
+          .single()
+
+        if (errC) throw new Error(errC.message)
+        idCliente = nuevo.id_cliente
+        setClientes((prev) => [...prev, { id_cliente: idCliente!, nombre: nombreAlias }])
+      }
+
       /* ───── Paso A: Insertar venta ───── */
+      const ventaPayload: Record<string, unknown> = {
+        alias_tecnico: nombreAlias,
+        estado_pago: estado,
+        metodo_pago: metodoPago,
+        total,
+        notas: null,
+        numero_comprobante: esTransferencia ? nroComprobante.trim() : null,
+      }
+      if (idCliente) ventaPayload.id_cliente = idCliente
+
       const { data: venta, error: errV } = await supabase
         .from('ventas')
-        .insert({
-          alias_tecnico: alias.trim(),
-          estado_pago: estado,
-          metodo_pago: metodoPago,
-          total,
-          notas,
-        })
+        .insert(ventaPayload)
         .select('id_venta')
         .single()
 
@@ -89,13 +124,55 @@ export function CartDrawer() {
         }
       }
 
-      /* ───── Paso D: Limpiar y refrescar ───── */
+      /* ───── Paso D: Generar PDF según estado ───── */
+      if (estado === 'A Prueba') {
+        /* silencio — no generar PDF */
+      } else if (estado === 'Fiado') {
+        generarReciboVenta({
+          tituloDocumento: 'COMPROBANTE DE CRÉDITO',
+          nombreCliente: nombreAlias,
+          fecha: new Date().toLocaleDateString('es-PE', {
+            year: 'numeric', month: 'long', day: 'numeric',
+            hour: '2-digit', minute: '2-digit',
+          }),
+          detallesRepuesto: items.map((item) => ({
+            categoria: item.categoria,
+            marca: item.marca_nombre,
+            modelo: item.modelo_nombre,
+            cantidad: item.cantidad,
+            precioUnitario: item.precio,
+            subtotal: item.precio * item.cantidad,
+          })),
+          total,
+        })
+      } else {
+        generarReciboVenta({
+          tituloDocumento: 'COMPROBANTE DE VENTA',
+          nombreCliente: nombreAlias,
+          fecha: new Date().toLocaleDateString('es-PE', {
+            year: 'numeric', month: 'long', day: 'numeric',
+            hour: '2-digit', minute: '2-digit',
+          }),
+          detallesRepuesto: items.map((item) => ({
+            categoria: item.categoria,
+            marca: item.marca_nombre,
+            modelo: item.modelo_nombre,
+            cantidad: item.cantidad,
+            precioUnitario: item.precio,
+            subtotal: item.precio * item.cantidad,
+          })),
+          total,
+        })
+      }
+
+      /* ───── Paso E: Limpiar y refrescar ───── */
       clearCart()
       setAlias('')
       setEstado('Pagado')
       setMetodoPago('Efectivo')
       setNroComprobante('')
       transactionSuccess()
+      onVentaExitosa?.()
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Error al procesar la transacción')
     } finally {
@@ -185,7 +262,7 @@ export function CartDrawer() {
                     </select>
 
                     <span className="text-sm font-mono font-semibold text-slate-800 min-w-[5rem] text-right">
-                      S/ {(item.precio * item.cantidad).toFixed(2)}
+                      $ {(item.precio * item.cantidad).toFixed(2)}
                     </span>
                   </div>
                 </div>
@@ -198,7 +275,7 @@ export function CartDrawer() {
             <div className="border-t border-slate-200 px-5 py-4 space-y-3">
               <div className="flex justify-between text-sm font-semibold text-slate-800">
                 <span>Total:</span>
-                <span className="font-mono">S/ {total.toFixed(2)}</span>
+                <span className="font-mono">$ {total.toFixed(2)}</span>
               </div>
 
               <input
@@ -206,12 +283,12 @@ export function CartDrawer() {
                 placeholder="Alias del Técnico *"
                 value={alias}
                 onChange={(e) => setAlias(e.target.value)}
-                list="lista-tecnicos"
+                list="lista-clientes"
                 className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
-              <datalist id="lista-tecnicos">
-                {tecnicosPrevios.map((t) => (
-                  <option key={t} value={t} />
+              <datalist id="lista-clientes">
+                {clientes.map((c) => (
+                  <option key={c.id_cliente} value={c.nombre} />
                 ))}
               </datalist>
 
@@ -228,15 +305,25 @@ export function CartDrawer() {
 
                 <select
                   value={metodoPago}
+                  disabled={esPagoDiferido}
                   onChange={(e) => {
                     setMetodoPago(e.target.value as MetodoPago)
                     if (e.target.value !== 'Transferencia') setNroComprobante('')
                   }}
-                  className="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className={`rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                    esPagoDiferido
+                      ? 'bg-gray-100 text-gray-500 cursor-not-allowed'
+                      : 'bg-white border-slate-300'
+                  }`}
                 >
-                  <option value="Efectivo">Efectivo</option>
-                  <option value="Transferencia">Transferencia</option>
-                  <option value="Pendiente">Pendiente</option>
+                  {esPagoDiferido ? (
+                    <option value="Pendiente">Pendiente</option>
+                  ) : (
+                    <>
+                      <option value="Efectivo">Efectivo</option>
+                      <option value="Transferencia">Transferencia</option>
+                    </>
+                  )}
                 </select>
               </div>
 

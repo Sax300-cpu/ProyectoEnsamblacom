@@ -19,3 +19,16 @@ export function formatearDetalles(
   }
   return partes.join(' - ')
 }
+
+export function formatearFechaComprobante(
+  fechaString: string | null | undefined,
+): string | null {
+  if (!fechaString) return null
+  const d = new Date(fechaString)
+  if (isNaN(d.getTime())) return null
+  const dia = d.toLocaleDateString('es-PE', { day: 'numeric' })
+  const mes = d.toLocaleDateString('es-PE', { month: 'long' })
+  const anio = d.getFullYear()
+  const hora = d.toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' })
+  return `${dia} de ${mes} de ${anio} a las ${hora}`
+}

@@ -1,6 +1,11 @@
+import { useState } from 'react'
 import { Routes, Route, Link } from 'react-router-dom';
 import { Home } from './pages/Home';
 import { Products } from './pages/Products';
+import { Pantallas } from './pages/Pantallas';
+import { Repuestos } from './pages/Repuestos';
+import { Clientes } from './pages/Clientes';
+import { Pedidos } from './pages/Pedidos';
 import { Configuration } from './pages/Configuration';
 import { CuentasPorCobrar } from './pages/CuentasPorCobrar';
 import { Reportes } from './pages/Reportes';
@@ -32,7 +37,8 @@ function NavCartButton() {
 }
 
 function AppContent() {
-  const { session, isAdmin, logout } = useAuth()
+  const { session, logout } = useAuth()
+  const [ventaExitosaCount, setVentaExitosaCount] = useState(0)
 
   if (!session) return <Login />
 
@@ -41,11 +47,13 @@ function AppContent() {
       <nav className="bg-blue-700 p-4 text-white shadow-md">
         <div className="flex gap-6 max-w-6xl mx-auto font-semibold items-center">
           <Link to="/" className="hover:text-blue-200 transition-colors">Inicio</Link>
-          <Link to="/productos?seccion=pantallas" className="hover:text-blue-200 transition-colors">Pantallas</Link>
-          <Link to="/productos?seccion=otros" className="hover:text-blue-200 transition-colors">Repuestos</Link>
+          <Link to="/pantallas" className="hover:text-blue-200 transition-colors">Pantallas</Link>
+          <Link to="/repuestos" className="hover:text-blue-200 transition-colors">Repuestos</Link>
+          <Link to="/clientes" className="hover:text-blue-200 transition-colors">Clientes</Link>
+          <Link to="/pedidos" className="hover:text-blue-200 transition-colors">Pedidos</Link>
           <Link to="/por-cobrar" className="hover:text-blue-200 transition-colors">Por Cobrar</Link>
           <Link to="/reportes" className="hover:text-blue-200 transition-colors">Reportes</Link>
-          {isAdmin && <Link to="/configuracion" className="hover:text-blue-200 transition-colors">⚙️ Configuración</Link>}
+          <Link to="/configuracion" className="hover:text-blue-200 transition-colors">⚙️ Configuración</Link>
           <NavCartButton />
           <button
             onClick={logout}
@@ -60,14 +68,18 @@ function AppContent() {
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/productos" element={<Products />} />
+          <Route path="/pantallas" element={<Pantallas refreshSignal={ventaExitosaCount} />} />
+          <Route path="/repuestos" element={<Repuestos refreshSignal={ventaExitosaCount} />} />
+          <Route path="/clientes" element={<Clientes />} />
+          <Route path="/pedidos" element={<Pedidos />} />
           <Route path="/por-cobrar" element={<CuentasPorCobrar />} />
           <Route path="/reportes" element={<Reportes />} />
-          {isAdmin && <Route path="/configuracion" element={<Configuration />} />}
+          <Route path="/configuracion" element={<Configuration />} />
           <Route path="*" element={<Home />} />
         </Routes>
       </main>
 
-      <CartDrawer />
+      <CartDrawer onVentaExitosa={() => setVentaExitosaCount((c) => c + 1)} />
     </div>
   )
 }

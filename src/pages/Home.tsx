@@ -8,7 +8,7 @@ const secciones = [
     emoji: '🖥️',
   },
   {
-    key: 'otros',
+    key: 'repuestos',
     titulo: 'Repuestos',
     descripcion: 'Baterías, flex y más',
     emoji: '🔧',
@@ -30,7 +30,7 @@ export function Home() {
         {secciones.map((s) => (
           <button
             key={s.key}
-            onClick={() => navigate(`/productos?seccion=${s.key}`)}
+            onClick={() => navigate(`/${s.key}`)}
             className="w-56 h-40 rounded-2xl border-2 border-slate-200 bg-white shadow-sm hover:shadow-md hover:border-blue-400 transition-all flex flex-col items-center justify-center gap-2 cursor-pointer"
           >
             <span className="text-4xl">{s.emoji}</span>

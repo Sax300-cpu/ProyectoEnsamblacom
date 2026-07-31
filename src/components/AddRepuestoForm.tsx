@@ -520,7 +520,7 @@ export function AddRepuestoForm({ seccion, onSuccess, onCancel }: Props) {
 
         {/* Costo */}
         <div>
-          <label className="block text-sm font-medium text-slate-700 mb-1">Costo Distribuidor (S/)</label>
+          <label className="block text-sm font-medium text-slate-700 mb-1">Costo Distribuidor ($)</label>
           <input
             type="number"
             name="costo_distribuidor"
@@ -535,7 +535,7 @@ export function AddRepuestoForm({ seccion, onSuccess, onCancel }: Props) {
 
         {/* Precio Técnico */}
         <div>
-          <label className="block text-sm font-medium text-slate-700 mb-1">Precio Técnico (S/)</label>
+          <label className="block text-sm font-medium text-slate-700 mb-1">Precio Técnico ($)</label>
           <input
             type="number"
             name="precio_tecnico"
@@ -550,7 +550,7 @@ export function AddRepuestoForm({ seccion, onSuccess, onCancel }: Props) {
 
         {/* Precio Cliente */}
         <div>
-          <label className="block text-sm font-medium text-slate-700 mb-1">Precio Cliente (S/)</label>
+          <label className="block text-sm font-medium text-slate-700 mb-1">Precio Cliente ($)</label>
           <input
             type="number"
             name="precio_cliente"

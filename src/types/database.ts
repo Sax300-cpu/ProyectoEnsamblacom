@@ -70,6 +70,8 @@ export interface Venta {
   total: number
   notas: string | null
   fecha_hora: string
+  numero_comprobante?: string | null
+  fecha_cobro?: string | null
 }
 
 export interface DetalleVenta {
