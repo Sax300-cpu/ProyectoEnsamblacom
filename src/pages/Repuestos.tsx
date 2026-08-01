@@ -70,6 +70,10 @@ export function Repuestos({ refreshSignal }: RepuestosProps) {
   const [filtroCategoria, setFiltroCategoria] = useState('Todas')
   const [categoriasFiltro, setCategoriasFiltro] = useState<Categoria[]>([])
   const [filtroStock, setFiltroStock] = useState<'todos' | 'con_stock' | 'agotados'>('todos')
+
+  const categoriasSinDetalles = ['Altavoz', 'Bandejas', 'Bisel', 'Flex Encendido', 'Flex Main', 'Vidrios de Camara']
+  const categoriaActual = categoriasFiltro.find((c) => String(c.id_categoria) === filtroCategoria)?.nombre ?? ''
+  const mostrarDetalles = !categoriasSinDetalles.some((c) => c.toLowerCase() === categoriaActual.toLowerCase())
   const [currentPage, setCurrentPage] = useState(1)
   const [totalCount, setTotalCount] = useState(0)
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE))
@@ -282,7 +286,7 @@ export function Repuestos({ refreshSignal }: RepuestosProps) {
                   <th className="text-left px-4 py-3 font-semibold">Marca</th>
                   <th className="text-left px-4 py-3 font-semibold">Modelo</th>
                   <th className="text-left px-4 py-3 font-semibold">Distribuidor</th>
-                  <th className="text-left px-4 py-3 font-semibold">Detalles</th>
+                  {mostrarDetalles && <th className="text-left px-4 py-3 font-semibold">Detalles</th>}
                   <th className="text-right px-4 py-3 font-semibold">Stock</th>
                   {isAdmin && <th className="text-right px-4 py-3 font-semibold">Costo</th>}
                   <th className="text-right px-4 py-3 font-semibold">Pre. Técnico</th>
@@ -311,36 +315,38 @@ export function Repuestos({ refreshSignal }: RepuestosProps) {
                         </div>
                       </td>
                       <td className="px-4 py-3 text-slate-700">{r.distribuidores.nombre}</td>
-                      <td className="px-4 py-3">
-                        <div className="flex flex-wrap gap-1">
-                          {Object.entries(r.atributos ?? {}).flatMap(([key, val]) => {
-                            if (typeof val === 'boolean') {
-                              if (!val) return []
-                              const label =
-                                key === 'con_bisel' ? 'Con Bisel'
-                                : key === 'vidrio_camara' ? 'Con Vidrio'
-                                : key
+                      {mostrarDetalles && (
+                        <td className="px-4 py-3">
+                          <div className="flex flex-wrap gap-1">
+                            {Object.entries(r.atributos ?? {}).flatMap(([key, val]) => {
+                              if (typeof val === 'boolean') {
+                                if (!val) return []
+                                const label =
+                                  key === 'con_bisel' ? 'Con Bisel'
+                                  : key === 'vidrio_camara' ? 'Con Vidrio'
+                                  : key
+                                return [(
+                                  <span key={key} className="inline-block rounded-md bg-slate-100 text-slate-600 px-2 py-0.5 text-xs">
+                                    {label}
+                                  </span>
+                                )]
+                              }
+                              if (key === 'calidad' || key === 'color') {
+                                return [(
+                                  <span key={key} className="inline-block rounded-md bg-slate-100 text-slate-600 px-2 py-0.5 text-xs uppercase">
+                                    {String(val)}
+                                  </span>
+                                )]
+                              }
                               return [(
                                 <span key={key} className="inline-block rounded-md bg-slate-100 text-slate-600 px-2 py-0.5 text-xs">
-                                  {label}
+                                  {key}: {String(val)}
                                 </span>
                               )]
-                            }
-                            if (key === 'calidad' || key === 'color') {
-                              return [(
-                                <span key={key} className="inline-block rounded-md bg-slate-100 text-slate-600 px-2 py-0.5 text-xs uppercase">
-                                  {String(val)}
-                                </span>
-                              )]
-                            }
-                            return [(
-                              <span key={key} className="inline-block rounded-md bg-slate-100 text-slate-600 px-2 py-0.5 text-xs">
-                                {key}: {String(val)}
-                              </span>
-                            )]
-                          })}
-                        </div>
-                      </td>
+                            })}
+                          </div>
+                        </td>
+                      )}
                       <td className="px-4 py-3 text-right">
                         <span
                           className={`inline-block min-w-[2rem] rounded-full px-2 py-0.5 text-xs font-semibold ${
