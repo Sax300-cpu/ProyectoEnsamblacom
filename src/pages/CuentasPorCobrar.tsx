@@ -319,17 +319,17 @@ export function CuentasPorCobrar() {
                           Devolver
                         </button>
                         <button
+                          onClick={() => setLiquidando(venta)}
+                          className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 transition-colors cursor-pointer"
+                        >
+                          Liquidar
+                        </button>
+                        <button
                           onClick={() => setGarantia(venta)}
                           title="Devolución / Garantía"
                           className="rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-600 transition-colors cursor-pointer"
                         >
                           🛡️
-                        </button>
-                        <button
-                          onClick={() => setLiquidando(venta)}
-                          className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 transition-colors cursor-pointer"
-                        >
-                          Liquidar
                         </button>
                       </div>
                     </td>
