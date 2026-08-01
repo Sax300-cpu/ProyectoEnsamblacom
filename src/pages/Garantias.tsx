@@ -8,6 +8,7 @@ const ESTADOS_REVISION = [
   'Pendiente de Prueba',
   'Devuelto a Proveedor',
   'Perdida Asumida',
+  'Reemplazado',
 ] as const
 
 interface CuarentenaRow {
@@ -20,6 +21,7 @@ interface CuarentenaRow {
   fecha_ingreso: string
   id_venta: number | null
   repuestos: {
+    stock: number
     atributos: Record<string, unknown>
     modelos: { id_modelo: number; nombre: string; marcas: { id_marca: number; nombre: string } } | null
     distribuidores: { id_distribuidor: number; nombre: string }
@@ -32,12 +34,20 @@ const badgeEstado: Record<string, string> = {
   'Pendiente de Prueba': 'bg-blue-100 text-blue-700',
   'Devuelto a Proveedor': 'bg-purple-100 text-purple-700',
   'Perdida Asumida': 'bg-red-100 text-red-700',
+  'Reemplazado': 'bg-emerald-100 text-emerald-700',
 }
 
 export function Garantias() {
   const [filas, setFilas] = useState<CuarentenaRow[]>([])
   const [cargando, setCargando] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [vistaActual, setVistaActual] = useState<'Pendientes' | 'Historial'>('Pendientes')
+
+  const filasFiltradas = filas.filter((fila) =>
+    vistaActual === 'Pendientes'
+      ? fila.estado_revision !== 'Reemplazado' && fila.estado_revision !== 'Perdida Asumida'
+      : fila.estado_revision === 'Reemplazado' || fila.estado_revision === 'Perdida Asumida',
+  )
 
   const cargarDatos = async () => {
     setCargando(true)
@@ -50,6 +60,7 @@ export function Garantias() {
           id_repuesto,
           id_categoria,
           id_distribuidor,
+          stock,
           atributos,
           modelos:id_modelo_principal (
             id_modelo,
@@ -77,6 +88,20 @@ export function Garantias() {
 
   const cambiarEstado = async (fila: CuarentenaRow, nuevoEstado: string) => {
     if (nuevoEstado === fila.estado_revision) return
+
+    if (nuevoEstado === 'Reemplazado') {
+      const stockActual = fila.repuestos?.stock ?? 0
+      const { error: errStock } = await supabase
+        .from('repuestos')
+        .update({ stock: stockActual + fila.cantidad })
+        .eq('id_repuesto', fila.id_repuesto)
+
+      if (errStock) {
+        toast.error('Error al reponer el stock: ' + errStock.message)
+        return
+      }
+    }
+
     const { error: err } = await supabase
       .from('cuarentena_defectuosos')
       .update({ estado_revision: nuevoEstado })
@@ -90,7 +115,11 @@ export function Garantias() {
     setFilas((prev) =>
       prev.map((f) => (f.id_cuarentena === fila.id_cuarentena ? { ...f, estado_revision: nuevoEstado } : f)),
     )
-    toast.success('Estado actualizado')
+    toast.success(
+      nuevoEstado === 'Reemplazado'
+        ? 'Garantía cubierta: Stock devuelto al inventario'
+        : 'Estado actualizado',
+    )
   }
 
   const textoOrigen = (fila: CuarentenaRow) => {
@@ -126,6 +155,29 @@ export function Garantias() {
         </button>
       </div>
 
+      <div className="flex gap-1 mb-4 border-b border-slate-200">
+        {(['Pendientes', 'Historial'] as const).map((tab) => (
+          <button
+            key={tab}
+            onClick={() => setVistaActual(tab)}
+            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors cursor-pointer ${
+              vistaActual === tab
+                ? 'border-amber-600 text-amber-700'
+                : 'border-transparent text-slate-500 hover:text-slate-700'
+            }`}
+          >
+            {tab}
+            <span className="ml-2 rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600">
+              {vistaActual === tab
+                ? filasFiltradas.length
+                : tab === 'Pendientes'
+                ? filas.filter((f) => f.estado_revision !== 'Reemplazado' && f.estado_revision !== 'Perdida Asumida').length
+                : filas.filter((f) => f.estado_revision === 'Reemplazado' || f.estado_revision === 'Perdida Asumida').length}
+            </span>
+          </button>
+        ))}
+      </div>
+
       {cargando ? (
         <div className="flex items-center justify-center py-12">
           <div className="flex flex-col items-center gap-3 text-slate-500">
@@ -140,9 +192,11 @@ export function Garantias() {
         <div className="bg-red-50 border border-red-200 text-red-700 rounded-lg p-4 text-sm">
           Error al cargar los datos: {error}
         </div>
-      ) : filas.length === 0 ? (
+      ) : filasFiltradas.length === 0 ? (
         <div className="text-center py-12 text-slate-500 text-sm">
-          No hay repuestos en cuarentena.
+          {vistaActual === 'Pendientes'
+            ? 'No hay repuestos pendientes en cuarentena.'
+            : 'No hay garantías resueltas en el historial.'}
         </div>
       ) : (
         <div className="overflow-x-auto rounded-lg border border-slate-200 shadow-sm">
@@ -158,7 +212,7 @@ export function Garantias() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200">
-              {filas.map((fila) => (
+              {filasFiltradas.map((fila) => (
                 <tr key={fila.id_cuarentena} className="hover:bg-slate-50 transition-colors">
                   <td className="px-4 py-3 text-slate-500 whitespace-nowrap">
                     {formatearFechaComprobante(fila.fecha_ingreso) ?? '—'}
