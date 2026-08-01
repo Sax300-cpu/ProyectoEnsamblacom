@@ -14,7 +14,7 @@ interface Props {
 
 export function LiquidarModal({ venta, detalle, onClose, onSuccess }: Props) {
   const [metodo, setMetodo] = useState<MetodoPago>('Efectivo')
-  const [comprobante, setComprobante] = useState('')
+  const [referencia, setReferencia] = useState('')
   const [enviando, setEnviando] = useState(false)
   const esTransferencia = metodo === 'Transferencia'
 
@@ -28,63 +28,71 @@ export function LiquidarModal({ venta, detalle, onClose, onSuccess }: Props) {
   })()
 
   const handleConfirm = async () => {
-    if (esTransferencia && !comprobante.trim()) {
-      toast.error('Por favor, ingresa el número de comprobante.')
+    if (esTransferencia && !referencia.trim()) {
+      toast.error('Por favor, ingresa la referencia de la transferencia.')
       return
     }
 
     setEnviando(true)
 
     try {
-      const otrosSubtotales = venta.detalles_venta
-        .filter((d) => d.id_detalle !== detalle.id_detalle)
-        .reduce((sum, d) => sum + d.subtotal, 0)
-      const nuevoTotal = Math.max(0, Math.round(otrosSubtotales * 100) / 100)
+      const fechaPago = new Date().toISOString()
 
-      const { error: errDel } = await supabase
+      const { error: errDet } = await supabase
         .from('detalles_venta')
-        .delete()
+        .update({
+          estado_item: 'Liquidado',
+          fecha_pago_item: fechaPago,
+          metodo_pago_item: metodo,
+          referencia_item: referencia.trim() || null,
+        })
         .eq('id_detalle', detalle.id_detalle)
-      if (errDel) throw errDel
+      if (errDet) throw errDet
 
-      if (nuevoTotal <= 0) {
-        const { error } = await supabase
-          .from('ventas')
-          .update({
-            estado_pago: 'Pagado',
-            metodo_pago: metodo,
-            numero_comprobante: esTransferencia ? comprobante.trim() : null,
-            fecha_cobro: 'now()',
-            total: 0,
-          })
-          .eq('id_venta', venta.id_venta)
-        if (error) throw error
-      } else {
-        const { error } = await supabase
-          .from('ventas')
-          .update({ total: nuevoTotal })
-          .eq('id_venta', venta.id_venta)
-        if (error) throw error
+      const nuevoTotal = Math.max(
+        0,
+        Math.round(
+          venta.detalles_venta
+            .filter(
+              (d) =>
+                d.id_detalle !== detalle.id_detalle &&
+                d.estado_item !== 'Liquidado' &&
+                d.estado_item !== 'Devuelto',
+            )
+            .reduce((sum, d) => sum + d.subtotal, 0) * 100,
+        ) / 100,
+      )
+
+      const updateVenta: Record<string, unknown> = {
+        total: nuevoTotal,
+        metodo_pago: metodo,
+        numero_comprobante: esTransferencia ? referencia.trim() : null,
       }
+      if (nuevoTotal <= 0) {
+        updateVenta.estado_pago = 'Pagado'
+        updateVenta.fecha_cobro = 'now()'
+      }
+
+      const { error } = await supabase
+        .from('ventas')
+        .update(updateVenta)
+        .eq('id_venta', venta.id_venta)
+      if (error) throw error
 
       generarReciboVenta({
         tituloDocumento: 'COMPROBANTE DE PAGO',
         nombreCliente: venta.alias_tecnico,
-        fecha:
-          formatearFechaComprobante(venta.fecha_cobro ?? venta.fecha_hora) ?? '—',
-        detallesRepuesto: [detalle].map((det) => {
-          const marca = det.repuestos.modelos?.marcas?.nombre ?? '—'
-          const modelo = det.repuestos.modelos?.nombre ?? '—'
-          const categoria = det.repuestos.categorias?.nombre ?? '—'
-          return {
-            categoria,
-            marca,
-            modelo,
-            cantidad: det.cantidad,
-            precioUnitario: det.precio_unitario,
-            subtotal: det.subtotal,
-          }
-        }),
+        fecha: formatearFechaComprobante(fechaPago) ?? '—',
+        detallesRepuesto: [
+          {
+            categoria: detalle.repuestos.categorias?.nombre ?? '—',
+            marca: detalle.repuestos.modelos?.marcas?.nombre ?? '—',
+            modelo: detalle.repuestos.modelos?.nombre ?? '—',
+            cantidad: detalle.cantidad,
+            precioUnitario: detalle.precio_unitario,
+            subtotal: detalle.subtotal,
+          },
+        ],
         total: detalle.subtotal,
       })
 
@@ -134,18 +142,18 @@ export function LiquidarModal({ venta, detalle, onClose, onSuccess }: Props) {
           </select>
         </div>
 
-        {esTransferencia && (
-          <div className="space-y-2">
-            <label className="block text-sm font-medium text-slate-700">Número de Comprobante</label>
-            <input
-              type="text"
-              value={comprobante}
-              onChange={(e) => setComprobante(e.target.value)}
-              placeholder="Ej: #000123456"
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
-        )}
+        <div className="space-y-2">
+          <label className="block text-sm font-medium text-slate-700">
+            Referencia <span className="text-slate-400">(opcional)</span>
+          </label>
+          <input
+            type="text"
+            value={referencia}
+            onChange={(e) => setReferencia(e.target.value)}
+            placeholder={esTransferencia ? 'Ej: #000123456' : 'Número de referencia si aplica…'}
+            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+        </div>
 
         <div className="flex justify-end gap-3 pt-2">
           <button
@@ -157,7 +165,7 @@ export function LiquidarModal({ venta, detalle, onClose, onSuccess }: Props) {
           </button>
           <button
             onClick={handleConfirm}
-            disabled={enviando || (esTransferencia && !comprobante.trim())}
+            disabled={enviando || (esTransferencia && !referencia.trim())}
             className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50 transition-colors cursor-pointer"
           >
             {enviando ? 'Procesando…' : 'Confirmar Pago'}

@@ -78,7 +78,9 @@ export function Reportes() {
           )
         `)
         .or(
-          `and(fecha_hora.gte.${inicioISO},fecha_hora.lte.${finISO}),and(fecha_cobro.gte.${inicioISO},fecha_cobro.lte.${finISO})`,
+          `and(fecha_hora.gte.${inicioISO},fecha_hora.lte.${finISO}),` +
+          `and(fecha_cobro.gte.${inicioISO},fecha_cobro.lte.${finISO}),` +
+          `and(detalles_venta.fecha_pago_item.gte.${inicioISO},detalles_venta.fecha_pago_item.lte.${finISO})`,
         )
         .order('fecha_hora', { ascending: false })
 
@@ -110,35 +112,39 @@ export function Reportes() {
   }, [])
 
   const metricas = (() => {
-    const esEstado = (estado: string | undefined, objetivo: string) =>
-      (estado || '').toLowerCase() === objetivo
-
     const sinMilisegundos = (iso: string) => iso.replace(/\.\d{3}Z$/, 'Z')
     const inicioISO = sinMilisegundos(new Date(`${fechaInicio}T00:00:00`).toISOString())
     const finISO = sinMilisegundos(new Date(`${fechaFin}T23:59:59`).toISOString())
+    const enRango = (iso?: string | null) => !!iso && iso >= inicioISO && iso <= finISO
 
-    const esIngresoDelPeriodo = (v: VentaConDetalles) => {
-      if (v.fecha_cobro && v.fecha_cobro >= inicioISO && v.fecha_cobro <= finISO) {
-        return true
-      }
-      if (!v.fecha_cobro && esEstado(v.estado_pago, 'pagado')) {
-        return v.fecha_hora >= inicioISO && v.fecha_hora <= finISO
-      }
-      return false
+    const esVentaDirectaDelPeriodo = (v: VentaConDetalles) =>
+      (v.estado_pago || '').toLowerCase() === 'pagado' && enRango(v.fecha_hora)
+
+    let ingresosTotales = 0
+    let efectivoCaja = 0
+    let totalTransferencias = 0
+
+    const sumarPorMetodo = (monto: number, metodo: string | null | undefined) => {
+      ingresosTotales += monto
+      const m = (metodo || '').toLowerCase()
+      if (m === 'efectivo') efectivoCaja += monto
+      else if (m === 'transferencia') totalTransferencias += monto
     }
 
-    const sumar = (filterFn: (v: VentaConDetalles) => boolean) =>
-      ventas
-        .filter(filterFn)
-        .reduce((sum, v) => sum + parseFloat(String(v.total ?? 0) || '0'), 0)
+    // a) Ventas directas: pagadas al momento (fecha_hora en rango)
+    for (const v of ventas) {
+      if (!esVentaDirectaDelPeriodo(v)) continue
+      sumarPorMetodo(parseFloat(String(v.total ?? 0) || '0'), v.metodo_pago)
+    }
 
-    const ingresosTotales = sumar(esIngresoDelPeriodo)
-    const efectivoCaja = sumar(
-      (v) => esIngresoDelPeriodo(v) && esEstado(v.metodo_pago, 'efectivo'),
-    )
-    const totalTransferencias = sumar(
-      (v) => esIngresoDelPeriodo(v) && esEstado(v.metodo_pago, 'transferencia'),
-    )
+    // b) Cobros diferidos: ítems liquidados (fecha_pago_item en rango)
+    for (const v of ventas) {
+      for (const det of v.detalles_venta) {
+        if (det.estado_item !== 'Liquidado' || !enRango(det.fecha_pago_item)) continue
+        sumarPorMetodo(parseFloat(String(det.subtotal ?? 0) || '0'), det.metodo_pago_item)
+      }
+    }
+
     return { ingresosTotales, efectivoCaja, totalTransferencias }
   })()
 
@@ -146,25 +152,41 @@ export function Reportes() {
     const result: FilaVenta[] = []
 
     for (const v of ventas) {
-      if (v.estado_pago !== 'Pagado') continue
-      const det = v.detalles_venta[0]
-      if (!det) continue
+      for (const det of v.detalles_venta) {
+        const esCobroDiferido = det.estado_item === 'Liquidado'
+        const esDevuelto = det.estado_item === 'Devuelto'
+        const esVentaDirecta =
+          !esCobroDiferido &&
+          !esDevuelto &&
+          (v.estado_pago || '').toLowerCase() === 'pagado'
+        if (!esCobroDiferido && !esVentaDirecta) continue
 
-      result.push({
-        id_venta: v.id_venta,
-        categoria: det.repuestos.categorias?.nombre ?? '—',
-        marca: det.repuestos.modelos?.marcas?.nombre ?? '—',
-        modelo: det.repuestos.modelos?.nombre ?? '—',
-        cantidad: det.cantidad,
-        total: v.total,
-        metodoPago: v.metodo_pago ?? '—',
-        numeroComprobante: v.numero_comprobante ?? null,
-        estadoPago: v.estado_pago,
-        alias: v.alias_tecnico,
-        fecha: formatearFechaComprobante(v.fecha_hora) ?? '—',
-        fechaCobro: formatearFechaComprobante(v.fecha_cobro),
-        precioUnitario: det.precio_unitario,
-      })
+        const fechaTransaccion = esCobroDiferido
+          ? det.fecha_pago_item ?? v.fecha_hora
+          : v.fecha_hora
+
+        result.push({
+          id_venta: `${v.id_venta}-${det.id_detalle}`,
+          categoria: det.repuestos.categorias?.nombre ?? '—',
+          marca: det.repuestos.modelos?.marcas?.nombre ?? '—',
+          modelo: det.repuestos.modelos?.nombre ?? '—',
+          cantidad: det.cantidad,
+          total: det.subtotal,
+          metodoPago: esCobroDiferido
+            ? det.metodo_pago_item ?? '—'
+            : v.metodo_pago ?? '—',
+          numeroComprobante: esCobroDiferido
+            ? det.referencia_item ?? null
+            : v.numero_comprobante ?? null,
+          estadoPago: v.estado_pago,
+          alias: v.alias_tecnico,
+          fecha: formatearFechaComprobante(fechaTransaccion) ?? '—',
+          fechaCobro: formatearFechaComprobante(
+            esCobroDiferido ? det.fecha_pago_item : null,
+          ),
+          precioUnitario: det.precio_unitario,
+        })
+      }
     }
 
     return result
@@ -411,7 +433,7 @@ export function Reportes() {
                       <td className="px-5 py-3 text-center font-mono text-slate-700">{fila.cantidad}</td>
                       <td className="px-5 py-3 text-center text-slate-600">
                         {fila.metodoPago}
-                        {fila.metodoPago === 'Transferencia' && fila.numeroComprobante && (
+                        {fila.numeroComprobante && (
                           <span className="block text-xs text-gray-500 mt-0.5">
                             Ref: {fila.numeroComprobante}
                           </span>
@@ -511,9 +533,11 @@ export function Reportes() {
                         onClick={() =>
                           generarReciboVenta({
                             tituloDocumento:
-                              fila.estadoPago === 'Fiado' || fila.estadoPago === 'A Prueba'
-                                ? 'COMPROBANTE DE CRÉDITO'
-                                : 'COMPROBANTE DE VENTA',
+                              fila.fechaCobro
+                                ? 'COMPROBANTE DE PAGO'
+                                : fila.estadoPago === 'Fiado' || fila.estadoPago === 'A Prueba'
+                                  ? 'COMPROBANTE DE CRÉDITO'
+                                  : 'COMPROBANTE DE VENTA',
                             nombreCliente: fila.alias,
                             fecha: fila.fecha,
                             detallesRepuesto: [
