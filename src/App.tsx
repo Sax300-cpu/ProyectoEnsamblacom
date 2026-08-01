@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Routes, Route, Link } from 'react-router-dom';
+import { Routes, Route, NavLink } from 'react-router-dom';
 import { Home } from './pages/Home';
 import { Products } from './pages/Products';
 import { Pantallas } from './pages/Pantallas';
@@ -38,8 +38,42 @@ function NavCartButton() {
   )
 }
 
+function UserBadge() {
+  const { user, logout } = useAuth()
+
+  return (
+    <div className="flex items-center gap-1 bg-blue-800/60 rounded-full pl-1 py-1 shrink-0 max-w-[200px]">
+      <span className="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center shrink-0">
+        <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.8}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+        </svg>
+      </span>
+      <span className="max-w-[150px] truncate block text-sm text-blue-100 hidden sm:block" title={user?.email}>
+        {user?.email}
+      </span>
+      <button
+        onClick={logout}
+        title="Salir"
+        className="w-8 h-8 rounded-full hover:bg-red-600 flex items-center justify-center transition-colors cursor-pointer shrink-0"
+      >
+        <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+        </svg>
+      </button>
+    </div>
+  )
+}
+
+function navLinkClass({ isActive }: { isActive: boolean }) {
+  return `px-2.5 py-1.5 text-sm font-medium whitespace-nowrap flex-shrink-0 rounded-lg transition-all duration-200 ease-in-out ${
+    isActive
+      ? 'bg-white/20 text-white font-semibold shadow-sm'
+      : 'text-white/80 hover:text-white hover:bg-white/10'
+  }`
+}
+
 function AppContent() {
-  const { session, logout } = useAuth()
+  const { session } = useAuth()
   const [ventaExitosaCount, setVentaExitosaCount] = useState(0)
 
   if (!session) return <Login />
@@ -47,23 +81,22 @@ function AppContent() {
   return (
     <div className="min-h-screen bg-gray-50">
       <nav className="bg-blue-700 p-4 text-white shadow-md">
-        <div className="flex gap-6 max-w-6xl mx-auto font-semibold items-center">
-          <Link to="/" className="hover:text-blue-200 transition-colors">Inicio</Link>
-          <Link to="/pantallas" className="hover:text-blue-200 transition-colors">Pantallas</Link>
-          <Link to="/repuestos" className="hover:text-blue-200 transition-colors">Repuestos</Link>
-          <Link to="/clientes" className="hover:text-blue-200 transition-colors">Clientes</Link>
-          <Link to="/pedidos" className="hover:text-blue-200 transition-colors">Pedidos</Link>
-          <Link to="/por-cobrar" className="hover:text-blue-200 transition-colors">Por Cobrar</Link>
-          <Link to="/garantias" className="hover:text-blue-200 transition-colors">Garantías</Link>
-          <Link to="/reportes" className="hover:text-blue-200 transition-colors">Reportes</Link>
-          <Link to="/configuracion" className="hover:text-blue-200 transition-colors">Configuración</Link>
-          <NavCartButton />
-          <button
-            onClick={logout}
-            className="bg-red-600 text-white border border-red-700 hover:bg-red-700 px-4 py-2 rounded-md font-medium transition-colors shadow-sm ml-4 cursor-pointer"
-          >
-            Cerrar Sesión
-          </button>
+        <div className="flex items-center justify-between w-full gap-2 px-4 max-w-6xl mx-auto font-semibold">
+          <div className="flex items-center gap-1 sm:gap-2 flex-nowrap overflow-x-auto no-scrollbar">
+            <NavLink to="/" className={navLinkClass} end>Inicio</NavLink>
+            <NavLink to="/pantallas" className={navLinkClass}>Pantallas</NavLink>
+            <NavLink to="/repuestos" className={navLinkClass}>Repuestos</NavLink>
+            <NavLink to="/clientes" className={navLinkClass}>Clientes</NavLink>
+            <NavLink to="/pedidos" className={navLinkClass}>Pedidos</NavLink>
+            <NavLink to="/por-cobrar" className={navLinkClass}>Por Cobrar</NavLink>
+            <NavLink to="/garantias" className={navLinkClass}>Garantías</NavLink>
+            <NavLink to="/reportes" className={navLinkClass}>Reportes</NavLink>
+            <NavLink to="/configuracion" className={navLinkClass}>Configuración</NavLink>
+          </div>
+          <div className="flex items-center gap-3 shrink-0">
+            <NavCartButton />
+            <UserBadge />
+          </div>
         </div>
       </nav>
 

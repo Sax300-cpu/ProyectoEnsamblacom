@@ -5,13 +5,14 @@ import { toast } from './Toaster'
 
 interface ModalGarantiaClienteProps {
   venta: VentaConDetalles
+  detalleInicial?: VentaConDetalles['detalles_venta'][number] | null
   onClose: () => void
   onSuccess: () => void
 }
 
-export function ModalGarantiaCliente({ venta, onClose, onSuccess }: ModalGarantiaClienteProps) {
+export function ModalGarantiaCliente({ venta, detalleInicial, onClose, onSuccess }: ModalGarantiaClienteProps) {
   const [idDetalle, setIdDetalle] = useState<number>(
-    venta.detalles_venta[0]?.id_detalle ?? 0,
+    detalleInicial?.id_detalle ?? venta.detalles_venta[0]?.id_detalle ?? 0,
   )
   const [cantidad, setCantidad] = useState<number>(1)
   const [descripcionFalla, setDescripcionFalla] = useState('')

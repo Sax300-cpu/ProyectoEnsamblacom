@@ -618,6 +618,7 @@ function ModalRepuesto({ isAdmin, editando, onClose, onSuccess }: ModalProps) {
     const stock = Number(form.stock)
     const costo = Number(form.costo_distribuidor)
     const precioTecnico = Number(form.precio_tecnico)
+    const precioCliente = Number(form.precio_cliente)
 
     if (!form.id_categoria || !form.id_modelo_principal) {
       setError('Seleccione una categoría y un modelo principal.')
@@ -631,7 +632,7 @@ function ModalRepuesto({ isAdmin, editando, onClose, onSuccess }: ModalProps) {
         stock,
         costo_distribuidor: costo,
         precio_tecnico: precioTecnico,
-        precio_cliente: 0,
+        precio_cliente: precioCliente,
         atributos: atributos as Record<string, unknown>,
       }
 
@@ -684,7 +685,7 @@ function ModalRepuesto({ isAdmin, editando, onClose, onSuccess }: ModalProps) {
       stock,
       costo_distribuidor: costo,
       precio_tecnico: precioTecnico,
-      precio_cliente: 0,
+      precio_cliente: precioCliente,
       atributos: atributos as Record<string, unknown>,
     }
 
@@ -1080,6 +1081,18 @@ function ModalRepuesto({ isAdmin, editando, onClose, onSuccess }: ModalProps) {
                   value={form.precio_tecnico}
                   onChange={handleChange}
                   required
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Precio Cliente ($)</label>
+                <input
+                  type="number"
+                  name="precio_cliente"
+                  min={0}
+                  step="0.01"
+                  value={form.precio_cliente}
+                  onChange={handleChange}
                   className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>

@@ -6,59 +6,77 @@ import { LiquidarModal } from '../components/LiquidarModal'
 import { ModalGarantiaCliente } from '../components/ModalGarantiaCliente'
 import { toast } from '../components/Toaster'
 
+type DetalleDeuda = VentaConDetalles['detalles_venta'][number]
+type FilaDeuda = VentaConDetalles & { detalle_enfocado: DetalleDeuda }
+
 function DevolucionModal({
   venta,
+  detalle,
   onClose,
   onSuccess,
 }: {
   venta: VentaConDetalles
+  detalle: DetalleDeuda
   onClose: () => void
   onSuccess: () => void
 }) {
   const [enviando, setEnviando] = useState(false)
 
-  const detallePrincipal = venta.detalles_venta[0]
-  const cantidadMax = detallePrincipal?.cantidad ?? 1
+  const cantidadMax = detalle.cantidad
   const [cantidadDevuelta, setCantidadDevuelta] = useState(cantidadMax)
 
-  const { nuevoTotalRestante, esParcial } = (() => {
-    if (!detallePrincipal) return { nuevoTotalRestante: 0, esParcial: false }
-    const pu = detallePrincipal.subtotal / detallePrincipal.cantidad
-    const esP = cantidadDevuelta < cantidadMax
-    const ntr = (cantidadMax - cantidadDevuelta) * pu
-    return { nuevoTotalRestante: ntr, esParcial: esP }
-  })()
+  const precioUnitario = detalle.subtotal / detalle.cantidad
+  const esParcial = cantidadDevuelta < cantidadMax
+  const nuevoSubtotal = (cantidadMax - cantidadDevuelta) * precioUnitario
 
   const handleBueno = async () => {
-    if (!detallePrincipal) return
     setEnviando(true)
 
     try {
-      const stockActual = detallePrincipal.repuestos.stock ?? 0
+      const stockActual = detalle.repuestos.stock ?? 0
       const { error: errStock } = await supabase
         .from('repuestos')
         .update({ stock: stockActual + cantidadDevuelta })
-        .eq('id_repuesto', detallePrincipal.id_repuesto)
+        .eq('id_repuesto', detalle.id_repuesto)
       if (errStock) throw errStock
+
+      const otrosSubtotales = venta.detalles_venta
+        .filter((d) => d.id_detalle !== detalle.id_detalle)
+        .reduce((sum, d) => sum + d.subtotal, 0)
 
       if (esParcial) {
         const { error: errDet } = await supabase
           .from('detalles_venta')
-          .update({ cantidad: cantidadMax - cantidadDevuelta, subtotal: nuevoTotalRestante })
-          .eq('id_detalle', detallePrincipal.id_detalle)
+          .update({ cantidad: cantidadMax - cantidadDevuelta, subtotal: nuevoSubtotal })
+          .eq('id_detalle', detalle.id_detalle)
         if (errDet) throw errDet
 
+        const nuevoTotal = Math.max(0, Math.round((otrosSubtotales + nuevoSubtotal) * 100) / 100)
         const { error: errVta } = await supabase
           .from('ventas')
-          .update({ total: nuevoTotalRestante })
+          .update({ total: nuevoTotal })
           .eq('id_venta', venta.id_venta)
         if (errVta) throw errVta
       } else {
         const { error: errDel } = await supabase
-          .from('ventas')
+          .from('detalles_venta')
           .delete()
-          .eq('id_venta', venta.id_venta)
+          .eq('id_detalle', detalle.id_detalle)
         if (errDel) throw errDel
+
+        if (otrosSubtotales <= 0) {
+          const { error: errVta } = await supabase
+            .from('ventas')
+            .delete()
+            .eq('id_venta', venta.id_venta)
+          if (errVta) throw errVta
+        } else {
+          const { error: errVta } = await supabase
+            .from('ventas')
+            .update({ total: Math.round(otrosSubtotales * 100) / 100 })
+            .eq('id_venta', venta.id_venta)
+          if (errVta) throw errVta
+        }
       }
 
       toast.success('Devolución procesada y stock actualizado')
@@ -69,6 +87,10 @@ function DevolucionModal({
       toast.error('Error al procesar: ' + ((error as Error).message || JSON.stringify(error)))
     }
   }
+
+  const modelo = detalle.repuestos.modelos?.nombre ?? '—'
+  const marca = detalle.repuestos.modelos?.marcas?.nombre ?? '—'
+  const categoria = detalle.repuestos.categorias?.nombre ?? '—'
 
   return (
     <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center">
@@ -81,12 +103,7 @@ function DevolucionModal({
         <p className="text-sm text-slate-600">
           El técnico está devolviendo:{' '}
           <span className="font-medium text-slate-800">
-            {detallePrincipal && (() => {
-              const m = detallePrincipal.repuestos.modelos?.nombre ?? '—'
-              const ma = detallePrincipal.repuestos.modelos?.marcas?.nombre ?? '—'
-              const cat = detallePrincipal.repuestos.categorias?.nombre ?? '—'
-              return `${detallePrincipal.cantidad}x ${cat} ${ma} ${m}`
-            })()}
+            {detalle.cantidad}x {categoria} {marca} {modelo}
           </span>
         </p>
 
@@ -126,20 +143,24 @@ function DevolucionModal({
   )
 }
 
-
-
 export function CuentasPorCobrar() {
   const [ventas, setVentas] = useState<VentaConDetalles[]>([])
   const [cargando, setCargando] = useState(true)
-  const [liquidando, setLiquidando] = useState<VentaConDetalles | null>(null)
-  const [devolviendo, setDevolviendo] = useState<VentaConDetalles | null>(null)
-  const [garantia, setGarantia] = useState<VentaConDetalles | null>(null)
+  const [liquidando, setLiquidando] = useState<FilaDeuda | null>(null)
+  const [devolviendo, setDevolviendo] = useState<FilaDeuda | null>(null)
+  const [garantia, setGarantia] = useState<FilaDeuda | null>(null)
   const [busqueda, setBusqueda] = useState('')
 
-  const ventasFiltradas = ventas.filter((v) =>
-    v.alias_tecnico.toLowerCase().includes(busqueda.toLowerCase()),
+  const filasAplanadas: FilaDeuda[] = ventas.flatMap((venta) =>
+    venta.detalles_venta.map((detalle) => ({ ...venta, detalle_enfocado: detalle })),
   )
-  const totalAcumulado = ventasFiltradas.reduce((sum, v) => sum + v.total, 0)
+  const filasFiltradas = filasAplanadas.filter((f) =>
+    f.alias_tecnico.toLowerCase().includes(busqueda.toLowerCase()),
+  )
+  const totalAcumulado = filasFiltradas.reduce(
+    (sum, f) => sum + f.detalle_enfocado.subtotal,
+    0,
+  )
 
   const formatFecha = (fechaString: string) => {
     if (!fechaString) return 'Sin fecha'
@@ -235,7 +256,7 @@ export function CuentasPorCobrar() {
         </div>
       </div>
 
-      {ventasFiltradas.length === 0 ? (
+      {filasFiltradas.length === 0 ? (
         <div className="text-center py-12 text-slate-500 text-sm">
           No se encontraron deudas para este técnico.
         </div>
@@ -255,77 +276,71 @@ export function CuentasPorCobrar() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
-              {ventasFiltradas.map((venta) => {
-                const det = venta.detalles_venta[0]
-                const modelo = det?.repuestos.modelos?.nombre ?? '—'
-                const marca = det?.repuestos.modelos?.marcas?.nombre ?? '—'
-                const categoria = det?.repuestos.categorias?.nombre ?? '—'
-                const distribuidor = det?.repuestos.distribuidores?.nombre ?? ''
-                const detalles = det?.repuestos.atributos ?? {}
-                const extras = det ? formatearDetalles(distribuidor, detalles) : ''
+              {filasFiltradas.map((fila) => {
+                const det = fila.detalle_enfocado
+                const modelo = det.repuestos.modelos?.nombre ?? '—'
+                const marca = det.repuestos.modelos?.marcas?.nombre ?? '—'
+                const categoria = det.repuestos.categorias?.nombre ?? '—'
+                const distribuidor = det.repuestos.distribuidores?.nombre ?? ''
+                const detalles = det.repuestos.atributos ?? {}
+                const extras = formatearDetalles(distribuidor, detalles)
                 return (
-                  <tr key={venta.id_venta} className="hover:bg-gray-50 transition-colors">
+                  <tr key={`${fila.id_venta}-${det.id_detalle}`} className="hover:bg-gray-50 transition-colors">
                     <td className="px-3 py-3 text-slate-500 whitespace-nowrap">
-                      {formatFecha(venta.fecha_hora)}
+                      {formatFecha(fila.fecha_hora)}
                     </td>
                     <td className="px-3 py-3 font-medium text-slate-800 whitespace-nowrap">
-                      {venta.alias_tecnico}
+                      {fila.alias_tecnico}
                     </td>
                     <td className="px-3 py-3 text-center">
                       <span
                         className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-semibold ${
-                          venta.estado_pago === 'Fiado'
+                          fila.estado_pago === 'Fiado'
                             ? 'bg-orange-100 text-orange-700'
                             : 'bg-blue-100 text-blue-700'
                         }`}
                       >
-                        {venta.estado_pago}
+                        {fila.estado_pago}
                       </span>
                     </td>
                     <td className="px-3 py-3 text-slate-700">
                       {categoria}
                     </td>
                     <td className="px-3 py-3">
-                      {det ? (
-                        <>
-                          <span className="font-medium text-slate-800">
-                            {marca} {modelo}
-                          </span>
-                          {extras && (
-                            <p className="text-xs text-gray-500 mt-0.5">
-                              [{extras}]
-                            </p>
-                          )}
-                        </>
-                      ) : (
-                        <span className="text-slate-400">—</span>
+                      <span className="font-medium text-slate-800">
+                        {marca} {modelo}
+                      </span>
+                      {extras && (
+                        <p className="text-xs text-gray-500 mt-0.5">
+                          [{extras}]
+                        </p>
                       )}
                     </td>
                     <td className="px-3 py-3 text-center font-medium text-slate-800">
-                      {det?.cantidad ?? '—'}
+                      {det.cantidad}
                     </td>
                     <td className="px-3 py-3 text-right">
                       <span className="font-bold text-slate-800 whitespace-nowrap">
-                        $ {venta.total.toFixed(2)}
+                        $ {det.subtotal.toFixed(2)}
                       </span>
                     </td>
                     <td className="px-3 py-3">
                       <div className="flex justify-end gap-2">
                         <button
-                          onClick={() => setDevolviendo(venta)}
+                          onClick={() => setDevolviendo(fila)}
                           title="Devolver pieza en buen estado a stock"
                           className="rounded-lg border border-blue-300 px-3 py-1.5 text-xs font-semibold text-blue-600 hover:bg-blue-50 transition-colors cursor-pointer"
                         >
                           Devolver
                         </button>
                         <button
-                          onClick={() => setLiquidando(venta)}
+                          onClick={() => setLiquidando(fila)}
                           className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 transition-colors cursor-pointer"
                         >
                           Liquidar
                         </button>
                         <button
-                          onClick={() => setGarantia(venta)}
+                          onClick={() => setGarantia(fila)}
                           title="Devolución / Garantía"
                           className="rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-600 transition-colors cursor-pointer"
                         >
@@ -344,6 +359,7 @@ export function CuentasPorCobrar() {
       {liquidando && (
         <LiquidarModal
           venta={liquidando}
+          detalle={liquidando.detalle_enfocado}
           onClose={() => setLiquidando(null)}
           onSuccess={() => {
             setLiquidando(null)
@@ -355,6 +371,7 @@ export function CuentasPorCobrar() {
       {devolviendo && (
         <DevolucionModal
           venta={devolviendo}
+          detalle={devolviendo.detalle_enfocado}
           onClose={() => setDevolviendo(null)}
           onSuccess={() => {
             setDevolviendo(null)
@@ -366,6 +383,7 @@ export function CuentasPorCobrar() {
       {garantia && (
         <ModalGarantiaCliente
           venta={garantia}
+          detalleInicial={garantia.detalle_enfocado}
           onClose={() => setGarantia(null)}
           onSuccess={() => {
             setGarantia(null)

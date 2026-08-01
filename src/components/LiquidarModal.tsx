@@ -3,58 +3,76 @@ import { supabase } from '../lib/supabase'
 import type { VentaConDetalles, MetodoPago } from '../types/database'
 import { formatearDetalles, formatearFechaComprobante } from '../lib/format'
 import { generarReciboVenta } from '../utils/generadorPDF'
+import { toast } from './Toaster'
 
 interface Props {
   venta: VentaConDetalles
+  detalle: VentaConDetalles['detalles_venta'][number]
   onClose: () => void
   onSuccess: () => void
 }
 
-export function LiquidarModal({ venta, onClose, onSuccess }: Props) {
+export function LiquidarModal({ venta, detalle, onClose, onSuccess }: Props) {
   const [metodo, setMetodo] = useState<MetodoPago>('Efectivo')
   const [comprobante, setComprobante] = useState('')
   const [enviando, setEnviando] = useState(false)
   const esTransferencia = metodo === 'Transferencia'
 
-  const detalle = venta.detalles_venta[0]
-  const descripcion = detalle
-    ? (() => {
-        const cat = detalle.repuestos.categorias?.nombre ?? '—'
-        const ma = detalle.repuestos.modelos?.marcas?.nombre ?? '—'
-        const m = detalle.repuestos.modelos?.nombre ?? '—'
-        const dist = detalle.repuestos.distribuidores?.nombre ?? ''
-        const extras = formatearDetalles(dist, detalle.repuestos.atributos ?? {})
-        return `${detalle.cantidad}x ${cat} ${ma} ${m}${extras ? ` (${extras})` : ''}`
-      })()
-    : '—'
+  const descripcion = (() => {
+    const cat = detalle.repuestos.categorias?.nombre ?? '—'
+    const ma = detalle.repuestos.modelos?.marcas?.nombre ?? '—'
+    const m = detalle.repuestos.modelos?.nombre ?? '—'
+    const dist = detalle.repuestos.distribuidores?.nombre ?? ''
+    const extras = formatearDetalles(dist, detalle.repuestos.atributos ?? {})
+    return `${detalle.cantidad}x ${cat} ${ma} ${m}${extras ? ` (${extras})` : ''}`
+  })()
 
   const handleConfirm = async () => {
     if (esTransferencia && !comprobante.trim()) {
-      alert('Por favor, ingresa el número de comprobante.')
+      toast.error('Por favor, ingresa el número de comprobante.')
       return
     }
 
     setEnviando(true)
 
     try {
-      const { error } = await supabase
-        .from('ventas')
-        .update({
-          estado_pago: 'Pagado',
-          metodo_pago: metodo,
-          numero_comprobante: esTransferencia ? comprobante.trim() : null,
-          fecha_cobro: 'now()',
-        })
-        .eq('id_venta', venta.id_venta)
+      const otrosSubtotales = venta.detalles_venta
+        .filter((d) => d.id_detalle !== detalle.id_detalle)
+        .reduce((sum, d) => sum + d.subtotal, 0)
+      const nuevoTotal = Math.max(0, Math.round(otrosSubtotales * 100) / 100)
 
-      if (error) throw error
+      const { error: errDel } = await supabase
+        .from('detalles_venta')
+        .delete()
+        .eq('id_detalle', detalle.id_detalle)
+      if (errDel) throw errDel
+
+      if (nuevoTotal <= 0) {
+        const { error } = await supabase
+          .from('ventas')
+          .update({
+            estado_pago: 'Pagado',
+            metodo_pago: metodo,
+            numero_comprobante: esTransferencia ? comprobante.trim() : null,
+            fecha_cobro: 'now()',
+            total: 0,
+          })
+          .eq('id_venta', venta.id_venta)
+        if (error) throw error
+      } else {
+        const { error } = await supabase
+          .from('ventas')
+          .update({ total: nuevoTotal })
+          .eq('id_venta', venta.id_venta)
+        if (error) throw error
+      }
 
       generarReciboVenta({
         tituloDocumento: 'COMPROBANTE DE PAGO',
         nombreCliente: venta.alias_tecnico,
         fecha:
           formatearFechaComprobante(venta.fecha_cobro ?? venta.fecha_hora) ?? '—',
-        detallesRepuesto: venta.detalles_venta.map((det) => {
+        detallesRepuesto: [detalle].map((det) => {
           const marca = det.repuestos.modelos?.marcas?.nombre ?? '—'
           const modelo = det.repuestos.modelos?.nombre ?? '—'
           const categoria = det.repuestos.categorias?.nombre ?? '—'
@@ -67,7 +85,7 @@ export function LiquidarModal({ venta, onClose, onSuccess }: Props) {
             subtotal: det.subtotal,
           }
         }),
-        total: venta.total,
+        total: detalle.subtotal,
       })
 
       setEnviando(false)
@@ -76,7 +94,7 @@ export function LiquidarModal({ venta, onClose, onSuccess }: Props) {
     } catch (error) {
       setEnviando(false)
       console.error('Error detallado:', error)
-      alert('Error al procesar el pago: ' + ((error as Error).message || JSON.stringify(error)))
+      toast.error('Error al procesar el pago: ' + ((error as Error).message || JSON.stringify(error)))
     }
   }
 
@@ -99,7 +117,7 @@ export function LiquidarModal({ venta, onClose, onSuccess }: Props) {
           </p>
           <p className="pt-1">
             <span className="text-base font-bold text-slate-800 font-mono">
-              Total: $ {venta.total.toFixed(2)}
+              Monto a liquidar: $ {detalle.subtotal.toFixed(2)}
             </span>
           </p>
         </div>
