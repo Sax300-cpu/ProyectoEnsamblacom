@@ -134,7 +134,11 @@ export function LiquidarModal({ venta, detalle, onClose, onSuccess }: Props) {
           <label className="block text-sm font-medium text-slate-700">Método de Pago</label>
           <select
             value={metodo}
-            onChange={(e) => setMetodo(e.target.value as MetodoPago)}
+            onChange={(e) => {
+              const nuevo = e.target.value as MetodoPago
+              if (nuevo === 'Efectivo') setReferencia('')
+              setMetodo(nuevo)
+            }}
             className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
             <option value="Efectivo">Efectivo</option>
@@ -142,18 +146,20 @@ export function LiquidarModal({ venta, detalle, onClose, onSuccess }: Props) {
           </select>
         </div>
 
-        <div className="space-y-2">
-          <label className="block text-sm font-medium text-slate-700">
-            Referencia <span className="text-slate-400">(opcional)</span>
-          </label>
-          <input
-            type="text"
-            value={referencia}
-            onChange={(e) => setReferencia(e.target.value)}
-            placeholder={esTransferencia ? 'Ej: #000123456' : 'Número de referencia si aplica…'}
-            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-          />
-        </div>
+        {esTransferencia && (
+          <div className="space-y-2">
+            <label className="block text-sm font-medium text-slate-700">
+              Número de Comprobante <span className="text-red-500">(Obligatorio)</span>
+            </label>
+            <input
+              type="text"
+              value={referencia}
+              onChange={(e) => setReferencia(e.target.value)}
+              placeholder="Ej: #000123456"
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+        )}
 
         <div className="flex justify-end gap-3 pt-2">
           <button
