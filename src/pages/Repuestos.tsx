@@ -4,6 +4,9 @@ import type { RepuestoConRelaciones, Categoria, Marca, Modelo, Distribuidor } fr
 import { useAuth } from '../contexts/AuthContext'
 import { useCart } from '../contexts/CartContext'
 import { ModalSumaStock } from '../components/ModalSumaStock'
+import { ModalCuarentena } from '../components/ModalCuarentena'
+import { toast } from '../components/Toaster'
+import { mensajeErrorDuplicado } from '../lib/errores'
 
 const CATEGORIA_PANTALLAS = 1
 const PAGE_SIZE = 10
@@ -64,7 +67,13 @@ export function Repuestos({ refreshSignal }: RepuestosProps) {
   const [cargando, setCargando] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [buscar, setBuscar] = useState('')
+  const [filtroCategoria, setFiltroCategoria] = useState('Todas')
+  const [categoriasFiltro, setCategoriasFiltro] = useState<Categoria[]>([])
   const [filtroStock, setFiltroStock] = useState<'todos' | 'con_stock' | 'agotados'>('todos')
+
+  const categoriasSinDetalles = ['Altavoz', 'Bandejas', 'Bisel', 'Flex Encendido', 'Flex Main', 'Vidrios de Camara']
+  const categoriaActual = categoriasFiltro.find((c) => String(c.id_categoria) === filtroCategoria)?.nombre ?? ''
+  const mostrarDetalles = !categoriasSinDetalles.some((c) => c.toLowerCase() === categoriaActual.toLowerCase())
   const [currentPage, setCurrentPage] = useState(1)
   const [totalCount, setTotalCount] = useState(0)
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE))
@@ -72,14 +81,49 @@ export function Repuestos({ refreshSignal }: RepuestosProps) {
 
   const { addToCart, openCart } = useCart()
 
+  const handleVender = (r: RepuestoConRelaciones) => {
+    if (r.stock <= 0) {
+      toast.error('❌ No hay stock disponible para este artículo.')
+      return
+    }
+    const modeloNombre = r.repuestos_compatibilidad[0]?.modelos.nombre ?? '—'
+    const marcaNombre = r.repuestos_compatibilidad[0]?.modelos.marcas.nombre ?? '—'
+    addToCart({
+      id_repuesto: r.id_repuesto,
+      cantidad: 1,
+      precio: r.precio_tecnico,
+      precio_tecnico: r.precio_tecnico,
+      precio_cliente: r.precio_cliente,
+      tipo_precio: 'tecnico',
+      descripcion: `${marcaNombre} ${modeloNombre}`,
+      categoria: r.categorias.nombre,
+      marca_nombre: marcaNombre,
+      modelo_nombre: modeloNombre,
+      stock_disponible: r.stock,
+      distribuidor: r.distribuidores.nombre,
+      detalles: r.atributos ?? {},
+    })
+    openCart()
+  }
+
   const [modalOpen, setModalOpen] = useState(false)
   const [editando, setEditando] = useState<RepuestoConRelaciones | null>(null)
   const [stockModalOpen, setStockModalOpen] = useState(false)
   const [stockProducto, setStockProducto] = useState<RepuestoConRelaciones | null>(null)
+  const [itemGarantia, setItemGarantia] = useState<RepuestoConRelaciones | null>(null)
 
   useEffect(() => {
     setCurrentPage(1)
-  }, [buscar, filtroStock])
+  }, [buscar, filtroCategoria, filtroStock])
+
+  useEffect(() => {
+    supabase
+      .from('categorias')
+      .select('id_categoria, nombre')
+      .neq('id_categoria', CATEGORIA_PANTALLAS)
+      .order('nombre')
+      .then(({ data }) => setCategoriasFiltro((data ?? []) as Categoria[]))
+  }, [])
 
   useEffect(() => {
     setCargando(true)
@@ -141,6 +185,11 @@ export function Repuestos({ refreshSignal }: RepuestosProps) {
         dataQuery = dataQuery.eq('stock', 0)
       }
 
+      if (filtroCategoria !== 'Todas') {
+        countQuery = countQuery.eq('id_categoria', Number(filtroCategoria))
+        dataQuery = dataQuery.eq('id_categoria', Number(filtroCategoria))
+      }
+
       const { count } = await countQuery
       setTotalCount(count ?? 0)
 
@@ -161,7 +210,7 @@ export function Repuestos({ refreshSignal }: RepuestosProps) {
     }
 
     fetchData()
-  }, [currentPage, buscar, filtroStock, refreshKey, refreshSignal])
+  }, [currentPage, buscar, filtroCategoria, filtroStock, refreshKey, refreshSignal])
 
   return (
     <section>
@@ -175,6 +224,16 @@ export function Repuestos({ refreshSignal }: RepuestosProps) {
           onChange={(e) => setBuscar(e.target.value)}
           className="flex-1 min-w-[200px] rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
         />
+        <select
+          value={filtroCategoria}
+          onChange={(e) => setFiltroCategoria(e.target.value)}
+          className="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 shrink-0"
+        >
+          <option value="Todas">Todas las categorías</option>
+          {categoriasFiltro.map((c) => (
+            <option key={c.id_categoria} value={c.id_categoria}>{c.nombre}</option>
+          ))}
+        </select>
         <select
           value={filtroStock}
           onChange={(e) => setFiltroStock(e.target.value as 'todos' | 'con_stock' | 'agotados')}
@@ -227,7 +286,7 @@ export function Repuestos({ refreshSignal }: RepuestosProps) {
                   <th className="text-left px-4 py-3 font-semibold">Marca</th>
                   <th className="text-left px-4 py-3 font-semibold">Modelo</th>
                   <th className="text-left px-4 py-3 font-semibold">Distribuidor</th>
-                  <th className="text-left px-4 py-3 font-semibold">Detalles</th>
+                  {mostrarDetalles && <th className="text-left px-4 py-3 font-semibold">Detalles</th>}
                   <th className="text-right px-4 py-3 font-semibold">Stock</th>
                   {isAdmin && <th className="text-right px-4 py-3 font-semibold">Costo</th>}
                   <th className="text-right px-4 py-3 font-semibold">Pre. Técnico</th>
@@ -256,36 +315,38 @@ export function Repuestos({ refreshSignal }: RepuestosProps) {
                         </div>
                       </td>
                       <td className="px-4 py-3 text-slate-700">{r.distribuidores.nombre}</td>
-                      <td className="px-4 py-3">
-                        <div className="flex flex-wrap gap-1">
-                          {Object.entries(r.atributos ?? {}).flatMap(([key, val]) => {
-                            if (typeof val === 'boolean') {
-                              if (!val) return []
-                              const label =
-                                key === 'con_bisel' ? 'Con Bisel'
-                                : key === 'vidrio_camara' ? 'Con Vidrio'
-                                : key
+                      {mostrarDetalles && (
+                        <td className="px-4 py-3">
+                          <div className="flex flex-wrap gap-1">
+                            {Object.entries(r.atributos ?? {}).flatMap(([key, val]) => {
+                              if (typeof val === 'boolean') {
+                                if (!val) return []
+                                const label =
+                                  key === 'con_bisel' ? 'Con Bisel'
+                                  : key === 'vidrio_camara' ? 'Con Vidrio'
+                                  : key
+                                return [(
+                                  <span key={key} className="inline-block rounded-md bg-slate-100 text-slate-600 px-2 py-0.5 text-xs">
+                                    {label}
+                                  </span>
+                                )]
+                              }
+                              if (key === 'calidad' || key === 'color') {
+                                return [(
+                                  <span key={key} className="inline-block rounded-md bg-slate-100 text-slate-600 px-2 py-0.5 text-xs uppercase">
+                                    {String(val)}
+                                  </span>
+                                )]
+                              }
                               return [(
                                 <span key={key} className="inline-block rounded-md bg-slate-100 text-slate-600 px-2 py-0.5 text-xs">
-                                  {label}
+                                  {key}: {String(val)}
                                 </span>
                               )]
-                            }
-                            if (key === 'calidad' || key === 'color') {
-                              return [(
-                                <span key={key} className="inline-block rounded-md bg-slate-100 text-slate-600 px-2 py-0.5 text-xs uppercase">
-                                  {String(val)}
-                                </span>
-                              )]
-                            }
-                            return [(
-                              <span key={key} className="inline-block rounded-md bg-slate-100 text-slate-600 px-2 py-0.5 text-xs">
-                                {key}: {String(val)}
-                              </span>
-                            )]
-                          })}
-                        </div>
-                      </td>
+                            })}
+                          </div>
+                        </td>
+                      )}
                       <td className="px-4 py-3 text-right">
                         <span
                           className={`inline-block min-w-[2rem] rounded-full px-2 py-0.5 text-xs font-semibold ${
@@ -330,29 +391,17 @@ export function Repuestos({ refreshSignal }: RepuestosProps) {
                             </button>
                           )}
                           <button
-                            onClick={() => {
-                              const modeloNombre = r.repuestos_compatibilidad[0]?.modelos.nombre ?? '—'
-                              const marcaNombre = r.repuestos_compatibilidad[0]?.modelos.marcas.nombre ?? '—'
-                              addToCart({
-                                id_repuesto: r.id_repuesto,
-                                cantidad: 1,
-                                precio: r.precio_tecnico,
-                                precio_tecnico: r.precio_tecnico,
-                                precio_cliente: r.precio_cliente,
-                                tipo_precio: 'tecnico',
-                                descripcion: `${marcaNombre} ${modeloNombre}`,
-                                categoria: r.categorias.nombre,
-                                marca_nombre: marcaNombre,
-                                modelo_nombre: modeloNombre,
-                                stock_disponible: r.stock,
-                                distribuidor: r.distribuidores.nombre,
-                                detalles: r.atributos ?? {},
-                              })
-                              openCart()
-                            }}
+                            onClick={() => handleVender(r)}
                             className="rounded-md bg-emerald-600 px-3 py-1 text-xs font-semibold text-white hover:bg-emerald-700 transition-colors cursor-pointer"
                           >
                             Vender
+                          </button>
+                          <button
+                            onClick={() => setItemGarantia(r)}
+                            title="Mover a Garantía"
+                            className="rounded-md bg-amber-500 px-2.5 py-1 text-xs font-semibold text-white hover:bg-amber-600 transition-colors cursor-pointer"
+                          >
+                            ⚠️
                           </button>
                         </div>
                       </td>
@@ -407,6 +456,17 @@ export function Repuestos({ refreshSignal }: RepuestosProps) {
           onSuccess={() => {
             setStockModalOpen(false)
             setStockProducto(null)
+            setRefreshKey((k) => k + 1)
+          }}
+        />
+      )}
+
+      {itemGarantia && (
+        <ModalCuarentena
+          producto={itemGarantia}
+          onClose={() => setItemGarantia(null)}
+          onSuccess={() => {
+            setItemGarantia(null)
             setRefreshKey((k) => k + 1)
           }}
         />
@@ -504,6 +564,7 @@ function ModalRepuesto({ isAdmin, editando, onClose, onSuccess }: ModalProps) {
     (c) => c.id_categoria === form.id_categoria,
   )
   const nombreCategoria = categoriaSeleccionada?.nombre?.toLowerCase() ?? ''
+  const esBaterias = nombreCategoria === 'baterías'
   const camposAtributos = definicionesAtributos[nombreCategoria] ?? []
 
   const handleChange = (e: React.ChangeEvent<HTMLSelectElement | HTMLInputElement>) => {
@@ -513,6 +574,11 @@ function ModalRepuesto({ isAdmin, editando, onClose, onSuccess }: ModalProps) {
       const atrName = name.slice(4)
       if (type === 'checkbox') {
         setAtributos((prev) => ({ ...prev, [atrName]: (e.target as HTMLInputElement).checked }))
+      } else if (value === '') {
+        setAtributos((prev) => {
+          const { [atrName]: _omit, ...rest } = prev
+          return rest
+        })
       } else {
         setAtributos((prev) => ({ ...prev, [atrName]: value }))
       }
@@ -577,7 +643,7 @@ function ModalRepuesto({ isAdmin, editando, onClose, onSuccess }: ModalProps) {
 
       if (updErr) {
         setEnviando(false)
-        setError(updErr.message)
+        setError(mensajeErrorDuplicado(updErr))
         return
       }
 
@@ -602,7 +668,7 @@ function ModalRepuesto({ isAdmin, editando, onClose, onSuccess }: ModalProps) {
 
         if (compatErr) {
           setEnviando(false)
-          setError(compatErr.message)
+          setError(mensajeErrorDuplicado(compatErr))
           return
         }
       }
@@ -623,33 +689,42 @@ function ModalRepuesto({ isAdmin, editando, onClose, onSuccess }: ModalProps) {
       atributos: atributos as Record<string, unknown>,
     }
 
-    const { data: existente } = await supabase
+    const normalizarAtributos = (atrib: Record<string, unknown> | null | undefined): Record<string, unknown> => {
+      if (!atrib) return {}
+      return Object.fromEntries(
+        Object.entries(atrib)
+          .filter(([_, v]) => v !== false && v !== null && v !== undefined && v !== '')
+          .sort(([a], [b]) => a.localeCompare(b))
+          .map(([k, v]) => {
+            const valorNormalizado = typeof v === 'string' ? v.trim().toLowerCase().replace(/\s+/g, ' ') : v
+            return [k, valorNormalizado]
+          }),
+      )
+    }
+
+    const atributosNormalizados = normalizarAtributos(payload.atributos)
+
+    const { data: candidatos, error: candErr } = await supabase
       .from('repuestos')
-      .select('id_repuesto, stock')
+      .select('id_repuesto, atributos')
       .eq('id_categoria', payload.id_categoria)
       .eq('id_distribuidor', payload.id_distribuidor)
       .eq('id_modelo_principal', payload.id_modelo_principal)
-      .eq('atributos', payload.atributos)
-      .maybeSingle()
 
-    if (existente) {
-      const { error: updErr } = await supabase
-        .from('repuestos')
-        .update({
-          stock: existente.stock + payload.stock,
-          costo_distribuidor: payload.costo_distribuidor,
-          precio_tecnico: payload.precio_tecnico,
-          precio_cliente: payload.precio_cliente,
-          atributos: payload.atributos,
-        })
-        .eq('id_repuesto', existente.id_repuesto)
-
+    if (candErr) {
       setEnviando(false)
-      if (updErr) {
-        setError(updErr.message)
-        return
-      }
-      onSuccess()
+      setError(mensajeErrorDuplicado(candErr))
+      return
+    }
+
+    const duplicado = (candidatos ?? []).some((c) =>
+      JSON.stringify(normalizarAtributos((c.atributos ?? {}) as Record<string, unknown>)) ===
+      JSON.stringify(atributosNormalizados),
+    )
+
+    if (duplicado) {
+      setEnviando(false)
+      toast.error('⚠️ Este producto con el mismo distribuidor y detalles ya existe. Búscalo en la lista para sumarle stock.')
       return
     }
 
@@ -661,7 +736,7 @@ function ModalRepuesto({ isAdmin, editando, onClose, onSuccess }: ModalProps) {
 
     if (insertErr) {
       setEnviando(false)
-      setError(insertErr.message)
+      setError(mensajeErrorDuplicado(insertErr))
       return
     }
 
@@ -681,7 +756,7 @@ function ModalRepuesto({ isAdmin, editando, onClose, onSuccess }: ModalProps) {
     setEnviando(false)
 
     if (compatErr) {
-      setError(compatErr.message)
+      setError(mensajeErrorDuplicado(compatErr))
       return
     }
 
@@ -931,6 +1006,30 @@ function ModalRepuesto({ isAdmin, editando, onClose, onSuccess }: ModalProps) {
             </div>
           )}
 
+          {/* Calidad específica para Baterías */}
+          {esBaterias && (
+            <div className="sm:col-span-2">
+              <label className="block text-sm font-medium text-slate-700 mb-1">
+                Detalles del repuesto
+              </label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 border border-slate-200 rounded-lg p-3">
+                <div>
+                  <label className="block text-xs text-slate-500 mb-0.5">Calidad</label>
+                  <select
+                    name="atr_calidad"
+                    value={(atributos.calidad as string) ?? ''}
+                    onChange={handleChange}
+                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="">Seleccionar calidad...</option>
+                    <option value="Deji">Deji</option>
+                    <option value="ORIG">ORIG</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Stock */}
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Stock</label>
@@ -994,7 +1093,6 @@ function ModalRepuesto({ isAdmin, editando, onClose, onSuccess }: ModalProps) {
                   step="0.01"
                   value={form.precio_cliente}
                   onChange={handleChange}
-                  required
                   className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
@@ -1007,34 +1105,19 @@ function ModalRepuesto({ isAdmin, editando, onClose, onSuccess }: ModalProps) {
               </div>
             </>
           ) : (
-            <>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Costo Distribuidor ($)</label>
-                <input
-                  type="number"
-                  name="costo_distribuidor"
-                  min={0}
-                  step="0.01"
-                  value={form.costo_distribuidor}
-                  onChange={handleChange}
-                  required
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Precio Cliente ($)</label>
-                <input
-                  type="number"
-                  name="precio_cliente"
-                  min={0}
-                  step="0.01"
-                  value={form.precio_cliente}
-                  onChange={handleChange}
-                  required
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-            </>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Costo Distribuidor ($)</label>
+              <input
+                type="number"
+                name="costo_distribuidor"
+                min={0}
+                step="0.01"
+                value={form.costo_distribuidor}
+                onChange={handleChange}
+                required
+                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
           )}
 
           {/* Botones */}

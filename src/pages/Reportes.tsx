@@ -1,18 +1,12 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
-import type { VentaConDetalles } from '../types/database'
+import type { Venta, VentaConDetalles } from '../types/database'
 import { generarReciboVenta, generarReportePeriodoPDF } from '../utils/generadorPDF'
 import { formatearFechaComprobante } from '../lib/format'
 
 function hoyISO() {
   const now = new Date()
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
-}
-
-function formatearFecha(iso: string) {
-  return new Date(`${iso}T00:00:00`).toLocaleDateString('es-PE', {
-    day: '2-digit', month: 'long', year: 'numeric',
-  })
 }
 
 interface FilaVenta {
@@ -56,45 +50,76 @@ export function Reportes() {
       const inicioISO = sinMilisegundos(new Date(`${fechaInicio}T00:00:00`).toISOString())
       const finISO = sinMilisegundos(new Date(`${fechaFin}T23:59:59`).toISOString())
 
-      const { data } = await supabase
-        .from('ventas')
-        .select(`
+      const relacionesRepuestos = `
+        repuestos (
           *,
-          detalles_venta (
-            *,
-            repuestos (
-              *,
-              modelos:id_modelo_principal (
-                id_modelo,
-                nombre,
-                marcas (
-                  id_marca,
-                  nombre
-                )
-              ),
-              categorias!inner (
-                id_categoria,
-                nombre
-              ),
-              distribuidores!inner (
-                id_distribuidor,
-                nombre
-              )
+          modelos:id_modelo_principal (
+            id_modelo,
+            nombre,
+            marcas (
+              id_marca,
+              nombre
             )
+          ),
+          categorias!inner (
+            id_categoria,
+            nombre
+          ),
+          distribuidores!inner (
+            id_distribuidor,
+            nombre
           )
-        `)
-        .or(
-          `and(fecha_hora.gte.${inicioISO},fecha_hora.lte.${finISO}),and(fecha_cobro.gte.${inicioISO},fecha_cobro.lte.${finISO})`,
         )
+      `
+
+      // Query 1 — Ventas del período (fecha_hora en rango): las directas pagadas
+      // hoy y las fiadas vendidas esta semana.
+      const queryVentas = supabase
+        .from('ventas')
+        .select(`*, detalles_venta ( *, ${relacionesRepuestos} )`)
+        .gte('fecha_hora', inicioISO)
+        .lte('fecha_hora', finISO)
         .order('fecha_hora', { ascending: false })
 
-      if (data) {
-        const ventasData = data as unknown as VentaConDetalles[]
-        setVentas(ventasData)
-      } else {
-        setVentas([])
+      // Query 2 — Cobros diferidos: ítems liquidados en el período (fecha_pago_item),
+      // sin importar cuándo se vendió la venta padre.
+      const queryDetalles = supabase
+        .from('detalles_venta')
+        .select(`*, ${relacionesRepuestos}, ventas(*)`)
+        .eq('estado_item', 'Liquidado')
+        .gte('fecha_pago_item', inicioISO)
+        .lte('fecha_pago_item', finISO)
+        .order('fecha_pago_item', { ascending: false })
+
+      const [resVentas, resDetalles] = await Promise.all([queryVentas, queryDetalles])
+
+      const ventasDirectas = (resVentas.data ?? []) as unknown as VentaConDetalles[]
+      const detallesCobrados = (resDetalles.data ?? []) as unknown as Array<
+        VentaConDetalles['detalles_venta'][number] & { ventas: Venta }
+      >
+
+      // Unificación: fusionar los ítems cobrados en sus ventas padre (sin duplicar)
+      const mapa = new Map<number, VentaConDetalles>()
+      for (const v of ventasDirectas) mapa.set(v.id_venta, v)
+      for (const detRaw of detallesCobrados) {
+        if (!detRaw.ventas) continue
+        const { ventas: ventaPadre, ...detalle } = detRaw
+        const existente = mapa.get(ventaPadre.id_venta)
+        if (existente) {
+          if (!existente.detalles_venta.some((d) => d.id_detalle === detalle.id_detalle)) {
+            existente.detalles_venta.push(detalle)
+          }
+        } else {
+          mapa.set(ventaPadre.id_venta, {
+            ...ventaPadre,
+            detalles_venta: [detalle],
+          })
+        }
       }
 
+      const ventasUnificadas = Array.from(mapa.values())
+
+      setVentas(ventasUnificadas)
       setIsLoading(false)
     }
 
@@ -115,79 +140,135 @@ export function Reportes() {
       })
   }, [])
 
-  const metricas = (() => {
-    const esEstado = (estado: string | undefined, objetivo: string) =>
-      (estado || '').toLowerCase() === objetivo
-
+  const transaccionesDelPeriodo: FilaVenta[] = (() => {
     const sinMilisegundos = (iso: string) => iso.replace(/\.\d{3}Z$/, 'Z')
     const inicioISO = sinMilisegundos(new Date(`${fechaInicio}T00:00:00`).toISOString())
     const finISO = sinMilisegundos(new Date(`${fechaFin}T23:59:59`).toISOString())
+    const enRango = (iso?: string | null) => !!iso && iso >= inicioISO && iso <= finISO
 
-    const esIngresoDelPeriodo = (v: VentaConDetalles) => {
-      if (v.fecha_cobro && v.fecha_cobro >= inicioISO && v.fecha_cobro <= finISO) {
-        return true
-      }
-      if (!v.fecha_cobro && esEstado(v.estado_pago, 'pagado')) {
-        return v.fecha_hora >= inicioISO && v.fecha_hora <= finISO
-      }
-      return false
+    interface Tx {
+      id: string
+      fechaISO: string
+      fechaCobroISO: string | null
+      categoria: string
+      marca: string
+      modelo: string
+      cantidad: number
+      monto: number
+      metodo: string
+      referencia: string | null
+      estadoPago: string
+      alias: string
+      precioUnitario: number
     }
 
-    const sumar = (filterFn: (v: VentaConDetalles) => boolean) =>
-      ventas
-        .filter(filterFn)
-        .reduce((sum, v) => sum + parseFloat(String(v.total ?? 0) || '0'), 0)
+    const tx: Tx[] = []
 
-    const ingresosTotales = sumar(esIngresoDelPeriodo)
-    const efectivoCaja = sumar(
-      (v) => esIngresoDelPeriodo(v) && esEstado(v.metodo_pago, 'efectivo'),
-    )
-    const totalTransferencias = sumar(
-      (v) => esIngresoDelPeriodo(v) && esEstado(v.metodo_pago, 'transferencia'),
-    )
-    return { ingresosTotales, efectivoCaja, totalTransferencias }
-  })()
-
-  const filasVenta: FilaVenta[] = (() => {
-    const result: FilaVenta[] = []
-
+    // Query 1 — Ventas directas: pagadas al momento (una fila por venta, monto = venta.total)
     for (const v of ventas) {
-      if (v.estado_pago !== 'Pagado') continue
+      if ((v.estado_pago || '').toLowerCase() !== 'pagado') continue
+      // Si la venta tiene ítems 'Liquidado', su ingreso ya se cuenta por ítem (Query 2):
+      // no duplicar montos.
+      if (v.detalles_venta.some((d) => d.estado_item === 'Liquidado')) continue
+
+      const fechaISO = enRango(v.fecha_hora)
+        ? v.fecha_hora
+        : enRango(v.fecha_cobro)
+          ? v.fecha_cobro!
+          : null
+      if (!fechaISO) continue
+
       const det = v.detalles_venta[0]
       if (!det) continue
 
-      result.push({
-        id_venta: v.id_venta,
+      tx.push({
+        id: `v-${v.id_venta}`,
+        fechaISO,
+        fechaCobroISO: null,
         categoria: det.repuestos.categorias?.nombre ?? '—',
         marca: det.repuestos.modelos?.marcas?.nombre ?? '—',
         modelo: det.repuestos.modelos?.nombre ?? '—',
         cantidad: det.cantidad,
-        total: v.total,
-        metodoPago: v.metodo_pago ?? '—',
-        numeroComprobante: v.numero_comprobante ?? null,
+        monto: v.total,
+        metodo: v.metodo_pago ?? '—',
+        referencia: v.numero_comprobante ?? null,
         estadoPago: v.estado_pago,
         alias: v.alias_tecnico,
-        fecha: formatearFechaComprobante(v.fecha_hora) ?? '—',
-        fechaCobro: formatearFechaComprobante(v.fecha_cobro),
         precioUnitario: det.precio_unitario,
       })
     }
 
-    return result
+    // Query 2 — Cobros diferidos: ítems liquidados (una fila por ítem, monto = detalle.subtotal)
+    for (const v of ventas) {
+      for (const det of v.detalles_venta) {
+        if (det.estado_item !== 'Liquidado' || !enRango(det.fecha_pago_item)) continue
+
+        tx.push({
+          id: `d-${v.id_venta}-${det.id_detalle}`,
+          fechaISO: det.fecha_pago_item!,
+          fechaCobroISO: det.fecha_pago_item,
+          categoria: det.repuestos.categorias?.nombre ?? '—',
+          marca: det.repuestos.modelos?.marcas?.nombre ?? '—',
+          modelo: det.repuestos.modelos?.nombre ?? '—',
+          cantidad: det.cantidad,
+          monto: det.subtotal,
+          metodo: det.metodo_pago_item ?? '—',
+          referencia: det.referencia_item ?? null,
+          estadoPago: v.estado_pago,
+          alias: v.alias_tecnico,
+          precioUnitario: det.precio_unitario,
+        })
+      }
+    }
+
+    const resultado = tx
+      .sort((a, b) => b.fechaISO.localeCompare(a.fechaISO))
+      .map((t) => ({
+        id_venta: t.id,
+        categoria: t.categoria,
+        marca: t.marca,
+        modelo: t.modelo,
+        cantidad: t.cantidad,
+        total: t.monto,
+        metodoPago: t.metodo,
+        numeroComprobante: t.referencia,
+        estadoPago: t.estadoPago,
+        alias: t.alias,
+        fecha: formatearFechaComprobante(t.fechaISO) ?? '—',
+        fechaCobro: formatearFechaComprobante(t.fechaCobroISO),
+        precioUnitario: t.precioUnitario,
+      }))
+
+    return resultado
+  })()
+
+  const metricas = (() => {
+    let ingresosTotales = 0
+    let efectivoCaja = 0
+    let totalTransferencias = 0
+
+    for (const t of transaccionesDelPeriodo) {
+      ingresosTotales += t.total
+      const m = (t.metodoPago || '').toLowerCase()
+      if (m === 'efectivo') efectivoCaja += t.total
+      else if (m === 'transferencia') totalTransferencias += t.total
+    }
+
+    return { ingresosTotales, efectivoCaja, totalTransferencias }
   })()
 
   const busquedaNormalizada = busquedaHistorial.trim().toLowerCase()
 
   const filasHistorialFiltradas = busquedaNormalizada
-    ? filasVenta.filter(
+    ? transaccionesDelPeriodo.filter(
         (fila) =>
           fila.categoria.toLowerCase().includes(busquedaNormalizada) ||
           fila.modelo.toLowerCase().includes(busquedaNormalizada) ||
           fila.alias.toLowerCase().includes(busquedaNormalizada),
       )
-    : filasVenta
+    : transaccionesDelPeriodo
 
-  const filasCobro = filasVenta.filter((fila) => fila.fechaCobro)
+  const filasCobro = transaccionesDelPeriodo.filter((fila) => fila.fechaCobro)
 
   const top10: TopItem[] = (() => {
     const map = new Map<number, Omit<TopItem, 'id_repuesto'>>()
@@ -417,7 +498,7 @@ export function Reportes() {
                       <td className="px-5 py-3 text-center font-mono text-slate-700">{fila.cantidad}</td>
                       <td className="px-5 py-3 text-center text-slate-600">
                         {fila.metodoPago}
-                        {fila.metodoPago === 'Transferencia' && fila.numeroComprobante && (
+                        {fila.numeroComprobante && (
                           <span className="block text-xs text-gray-500 mt-0.5">
                             Ref: {fila.numeroComprobante}
                           </span>
@@ -517,9 +598,11 @@ export function Reportes() {
                         onClick={() =>
                           generarReciboVenta({
                             tituloDocumento:
-                              fila.estadoPago === 'Fiado' || fila.estadoPago === 'A Prueba'
-                                ? 'COMPROBANTE DE CRÉDITO'
-                                : 'COMPROBANTE DE VENTA',
+                              fila.fechaCobro
+                                ? 'COMPROBANTE DE PAGO'
+                                : fila.estadoPago === 'Fiado' || fila.estadoPago === 'A Prueba'
+                                  ? 'COMPROBANTE DE CRÉDITO'
+                                  : 'COMPROBANTE DE VENTA',
                             nombreCliente: fila.alias,
                             fecha: fila.fecha,
                             detallesRepuesto: [

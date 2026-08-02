@@ -3,211 +3,141 @@ import { supabase } from '../lib/supabase'
 import type { VentaConDetalles } from '../types/database'
 import { formatearDetalles } from '../lib/format'
 import { LiquidarModal } from '../components/LiquidarModal'
+import { ModalGarantiaCliente } from '../components/ModalGarantiaCliente'
+import { toast } from '../components/Toaster'
+
+type DetalleDeuda = VentaConDetalles['detalles_venta'][number]
+type FilaDeuda = VentaConDetalles & { detalle_enfocado: DetalleDeuda }
+type TabInterna = 'Pendientes' | 'Historial'
+
+interface GrupoCliente {
+  cliente: string
+  itemsPendientes: FilaDeuda[]
+  itemsHistorial: FilaDeuda[]
+  deudaActiva: number
+}
+
+function agruparPorCliente(ventas: VentaConDetalles[]): GrupoCliente[] {
+  const mapa = new Map<string, VentaConDetalles[]>()
+  for (const v of ventas) {
+    const arr = mapa.get(v.alias_tecnico) ?? []
+    arr.push(v)
+    mapa.set(v.alias_tecnico, arr)
+  }
+
+  const grupos: GrupoCliente[] = []
+  for (const [cliente, ventasCliente] of mapa) {
+    const itemsPendientes: FilaDeuda[] = ventasCliente
+      .filter((v) => v.estado_pago === 'Fiado' || v.estado_pago === 'A Prueba')
+      .flatMap((venta) =>
+        venta.detalles_venta
+          .filter((d) => d.estado_item !== 'Liquidado' && d.estado_item !== 'Devuelto')
+          .map((detalle) => ({ ...venta, detalle_enfocado: detalle })),
+      )
+    const itemsHistorial: FilaDeuda[] = ventasCliente.flatMap((venta) =>
+      venta.detalles_venta
+        .filter((d) => d.estado_item === 'Liquidado' || d.estado_item === 'Devuelto')
+        .map((detalle) => ({ ...venta, detalle_enfocado: detalle })),
+    )
+    const deudaActiva = itemsPendientes.reduce(
+      (sum, f) => sum + f.detalle_enfocado.subtotal,
+      0,
+    )
+    grupos.push({ cliente, itemsPendientes, itemsHistorial, deudaActiva })
+  }
+
+  return grupos.sort((a, b) => a.cliente.localeCompare(b.cliente))
+}
+
+function descripcionItem(det: DetalleDeuda) {
+  const modelo = det.repuestos.modelos?.nombre ?? '—'
+  const marca = det.repuestos.modelos?.marcas?.nombre ?? '—'
+  const categoria = det.repuestos.categorias?.nombre ?? '—'
+  const distribuidor = det.repuestos.distribuidores?.nombre ?? ''
+  const extras = formatearDetalles(distribuidor, det.repuestos.atributos ?? {})
+  return { modelo, marca, categoria, extras }
+}
 
 function DevolucionModal({
   venta,
+  detalle,
   onClose,
   onSuccess,
 }: {
   venta: VentaConDetalles
+  detalle: DetalleDeuda
   onClose: () => void
   onSuccess: () => void
 }) {
   const [enviando, setEnviando] = useState(false)
-  const [modoDefectuoso, setModoDefectuoso] = useState(false)
-  const [motivoDefecto, setMotivoDefecto] = useState('')
 
-  const detallePrincipal = venta.detalles_venta[0]
-  const cantidadMax = detallePrincipal?.cantidad ?? 1
+  const cantidadMax = detalle.cantidad
   const [cantidadDevuelta, setCantidadDevuelta] = useState(cantidadMax)
 
-  const { precioUnitario, nuevoTotalRestante, esParcial } = (() => {
-    if (!detallePrincipal) return { precioUnitario: 0, nuevoTotalRestante: 0, esParcial: false }
-    const pu = detallePrincipal.subtotal / detallePrincipal.cantidad
-    const esP = cantidadDevuelta < cantidadMax
-    const ntr = (cantidadMax - cantidadDevuelta) * pu
-    return { precioUnitario: pu, nuevoTotalRestante: ntr, esParcial: esP }
-  })()
-
-  const resetYcerrar = () => {
-    setModoDefectuoso(false)
-    setMotivoDefecto('')
-    setEnviando(false)
-    onClose()
-    onSuccess()
-  }
+  const precioUnitario = detalle.subtotal / detalle.cantidad
+  const esParcial = cantidadDevuelta < cantidadMax
+  const nuevoSubtotal = (cantidadMax - cantidadDevuelta) * precioUnitario
 
   const handleBueno = async () => {
-    if (!detallePrincipal) return
     setEnviando(true)
 
     try {
-      const stockActual = detallePrincipal.repuestos.stock ?? 0
+      const stockActual = detalle.repuestos.stock ?? 0
       const { error: errStock } = await supabase
         .from('repuestos')
         .update({ stock: stockActual + cantidadDevuelta })
-        .eq('id_repuesto', detallePrincipal.id_repuesto)
+        .eq('id_repuesto', detalle.id_repuesto)
       if (errStock) throw errStock
+
+      const otrosSubtotales = venta.detalles_venta
+        .filter((d) => d.id_detalle !== detalle.id_detalle)
+        .reduce((sum, d) => sum + d.subtotal, 0)
 
       if (esParcial) {
         const { error: errDet } = await supabase
           .from('detalles_venta')
-          .update({ cantidad: cantidadMax - cantidadDevuelta, subtotal: nuevoTotalRestante })
-          .eq('id_detalle', detallePrincipal.id_detalle)
+          .update({ cantidad: cantidadMax - cantidadDevuelta, subtotal: nuevoSubtotal })
+          .eq('id_detalle', detalle.id_detalle)
         if (errDet) throw errDet
 
+        const nuevoTotal = Math.max(0, Math.round((otrosSubtotales + nuevoSubtotal) * 100) / 100)
         const { error: errVta } = await supabase
           .from('ventas')
-          .update({ total: nuevoTotalRestante })
+          .update({ total: nuevoTotal })
           .eq('id_venta', venta.id_venta)
         if (errVta) throw errVta
       } else {
         const { error: errDel } = await supabase
-          .from('ventas')
+          .from('detalles_venta')
           .delete()
-          .eq('id_venta', venta.id_venta)
+          .eq('id_detalle', detalle.id_detalle)
         if (errDel) throw errDel
+
+        if (otrosSubtotales <= 0) {
+          const { error: errVta } = await supabase
+            .from('ventas')
+            .delete()
+            .eq('id_venta', venta.id_venta)
+          if (errVta) throw errVta
+        } else {
+          const { error: errVta } = await supabase
+            .from('ventas')
+            .update({ total: Math.round(otrosSubtotales * 100) / 100 })
+            .eq('id_venta', venta.id_venta)
+          if (errVta) throw errVta
+        }
       }
 
-      resetYcerrar()
+      toast.success('Devolución procesada y stock actualizado')
+      onSuccess()
     } catch (error) {
       setEnviando(false)
       console.error('Error detallado:', error)
-      alert('Error al procesar: ' + ((error as Error).message || JSON.stringify(error)))
+      toast.error('Error al procesar: ' + ((error as Error).message || JSON.stringify(error)))
     }
   }
 
-  const handleDefectuoso = async () => {
-    if (!motivoDefecto.trim() || !detallePrincipal) return
-    setEnviando(true)
-
-    try {
-      if (esParcial) {
-        const { data: newVenta, error: errIns } = await supabase
-          .from('ventas')
-          .insert({
-            alias_tecnico: venta.alias_tecnico,
-            estado_pago: 'Garantia',
-            metodo_pago: null,
-            total: cantidadDevuelta * precioUnitario,
-            notas: motivoDefecto.trim(),
-          })
-          .select('id_venta')
-          .single()
-        if (errIns || !newVenta) throw errIns ?? new Error('Error al crear venta de garantía')
-
-        const { error: errDetNew } = await supabase
-          .from('detalles_venta')
-          .insert({
-            id_venta: newVenta.id_venta,
-            id_repuesto: detallePrincipal.id_repuesto,
-            cantidad: cantidadDevuelta,
-            precio_unitario: precioUnitario,
-            subtotal: cantidadDevuelta * precioUnitario,
-          })
-        if (errDetNew) throw errDetNew
-
-        const { error: errDetUpd } = await supabase
-          .from('detalles_venta')
-          .update({ cantidad: cantidadMax - cantidadDevuelta, subtotal: nuevoTotalRestante })
-          .eq('id_detalle', detallePrincipal.id_detalle)
-        if (errDetUpd) throw errDetUpd
-
-        const { error: errVtaUpd } = await supabase
-          .from('ventas')
-          .update({ total: nuevoTotalRestante })
-          .eq('id_venta', venta.id_venta)
-        if (errVtaUpd) throw errVtaUpd
-      } else {
-        const { error: errUpd } = await supabase
-          .from('ventas')
-          .update({ estado_pago: 'Garantia', notas: motivoDefecto.trim() })
-          .eq('id_venta', venta.id_venta)
-        if (errUpd) throw errUpd
-      }
-
-      resetYcerrar()
-    } catch (error) {
-      setEnviando(false)
-      console.error('Error detallado:', error)
-      alert('Error al guardar: ' + ((error as Error).message || JSON.stringify(error)))
-    }
-  }
-
-  const volverAlInicio = () => {
-    setModoDefectuoso(false)
-    setMotivoDefecto('')
-    setCantidadDevuelta(cantidadMax)
-  }
-
-  const inputCantidad = (
-    <div>
-      <label className="block text-xs font-medium text-slate-600 mb-1">Cantidad a devolver</label>
-      <input
-        type="number"
-        min={1}
-        max={cantidadMax}
-        value={cantidadDevuelta}
-        onChange={(e) => {
-          const v = Math.min(cantidadMax, Math.max(1, Number(e.target.value) || 1))
-          setCantidadDevuelta(v)
-        }}
-        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-      />
-    </div>
-  )
-
-  if (modoDefectuoso) {
-    return (
-      <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center">
-        <div
-          className="bg-white rounded-xl shadow-xl w-full max-w-sm mx-4 p-6 space-y-4"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <h3 className="text-lg font-semibold text-slate-800">Registrar Devolución Defectuosa</h3>
-
-          <p className="text-sm text-slate-600">
-            Pieza:{' '}
-            <span className="font-medium text-slate-800">
-              {detallePrincipal && (() => {
-                const m = detallePrincipal.repuestos.modelos?.nombre ?? '—'
-                const ma = detallePrincipal.repuestos.modelos?.marcas?.nombre ?? '—'
-                const cat = detallePrincipal.repuestos.categorias?.nombre ?? '—'
-                return `${detallePrincipal.cantidad}x ${cat} ${ma} ${m}`
-              })()}
-            </span>
-          </p>
-
-          {inputCantidad}
-
-          <textarea
-            value={motivoDefecto}
-            onChange={(e) => setMotivoDefecto(e.target.value)}
-            placeholder="Detalla el problema (Ej: Flex roto por el técnico, táctil no responde, vino trizada…)"
-            rows={4}
-            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-500 resize-none"
-          />
-
-          <div className="flex gap-2 pt-2">
-            <button
-              onClick={volverAlInicio}
-              disabled={enviando}
-              className="flex-1 rounded-lg border border-slate-300 px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors cursor-pointer"
-            >
-              Volver
-            </button>
-            <button
-              onClick={handleDefectuoso}
-              disabled={enviando || !motivoDefecto.trim()}
-              className="flex-1 rounded-lg bg-red-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-red-800 disabled:opacity-50 transition-colors cursor-pointer"
-            >
-              {enviando ? 'Procesando…' : 'Confirmar Registro'}
-            </button>
-          </div>
-        </div>
-      </div>
-    )
-  }
+  const { modelo, marca, categoria } = descripcionItem(detalle)
 
   return (
     <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center">
@@ -215,23 +145,29 @@ function DevolucionModal({
         className="bg-white rounded-xl shadow-xl w-full max-w-sm mx-4 p-6 space-y-4"
         onClick={(e) => e.stopPropagation()}
       >
-        <h3 className="text-lg font-semibold text-slate-800">Procesar Devolución</h3>
+        <h3 className="text-lg font-semibold text-slate-800">Devolución a Stock</h3>
 
         <p className="text-sm text-slate-600">
           El técnico está devolviendo:{' '}
           <span className="font-medium text-slate-800">
-            {detallePrincipal && (() => {
-              const m = detallePrincipal.repuestos.modelos?.nombre ?? '—'
-              const ma = detallePrincipal.repuestos.modelos?.marcas?.nombre ?? '—'
-              const cat = detallePrincipal.repuestos.categorias?.nombre ?? '—'
-              return `${detallePrincipal.cantidad}x ${cat} ${ma} ${m}`
-            })()}
+            {detalle.cantidad}x {categoria} {marca} {modelo}
           </span>
         </p>
 
-        {inputCantidad}
-
-        <p className="text-sm text-slate-600">¿En qué estado se encuentra la pieza?</p>
+        <div>
+          <label className="block text-xs font-medium text-slate-600 mb-1">Cantidad a devolver</label>
+          <input
+            type="number"
+            min={1}
+            max={cantidadMax}
+            value={cantidadDevuelta}
+            onChange={(e) => {
+              const v = Math.min(cantidadMax, Math.max(1, Number(e.target.value) || 1))
+              setCantidadDevuelta(v)
+            }}
+            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+        </div>
 
         <div className="flex flex-col gap-2 pt-2">
           <button
@@ -239,14 +175,7 @@ function DevolucionModal({
             disabled={enviando}
             className="w-full rounded-lg bg-blue-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-50 transition-colors cursor-pointer"
           >
-            {enviando ? 'Procesando…' : 'Bueno — Regresar a Stock'}
-          </button>
-          <button
-            onClick={() => setModoDefectuoso(true)}
-            disabled={enviando}
-            className="w-full rounded-lg bg-red-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-red-800 disabled:opacity-50 transition-colors cursor-pointer"
-          >
-            Defectuoso — Descartar
+            {enviando ? 'Procesando…' : 'Regresar a Stock'}
           </button>
           <button
             onClick={onClose}
@@ -261,19 +190,21 @@ function DevolucionModal({
   )
 }
 
-
-
 export function CuentasPorCobrar() {
   const [ventas, setVentas] = useState<VentaConDetalles[]>([])
   const [cargando, setCargando] = useState(true)
-  const [liquidando, setLiquidando] = useState<VentaConDetalles | null>(null)
-  const [devolviendo, setDevolviendo] = useState<VentaConDetalles | null>(null)
+  const [liquidando, setLiquidando] = useState<FilaDeuda | null>(null)
+  const [devolviendo, setDevolviendo] = useState<FilaDeuda | null>(null)
+  const [garantia, setGarantia] = useState<FilaDeuda | null>(null)
   const [busqueda, setBusqueda] = useState('')
+  const [clienteAbierto, setClienteAbierto] = useState<string | null>(null)
+  const [tabActivo, setTabActivo] = useState<TabInterna>('Pendientes')
 
-  const ventasFiltradas = ventas.filter((v) =>
-    v.alias_tecnico.toLowerCase().includes(busqueda.toLowerCase()),
+  const grupos = agruparPorCliente(ventas)
+  const gruposFiltrados = grupos.filter((g) =>
+    g.cliente.toLowerCase().includes(busqueda.toLowerCase()),
   )
-  const totalAcumulado = ventasFiltradas.reduce((sum, v) => sum + v.total, 0)
+  const totalAcumulado = gruposFiltrados.reduce((sum, g) => sum + g.deudaActiva, 0)
 
   const formatFecha = (fechaString: string) => {
     if (!fechaString) return 'Sin fecha'
@@ -322,7 +253,7 @@ export function CuentasPorCobrar() {
           )
         )
       `)
-      .in('estado_pago', ['Fiado', 'A Prueba'])
+      .in('estado_pago', ['Fiado', 'A Prueba', 'Pagado', 'Garantia'])
       .order('fecha_hora', { ascending: false })
 
     if (data) setVentas(data as unknown as VentaConDetalles[])
@@ -332,6 +263,11 @@ export function CuentasPorCobrar() {
   useEffect(() => {
     cargarVentas()
   }, [])
+
+  const toggleCliente = (cliente: string) => {
+    setClienteAbierto((prev) => (prev === cliente ? null : cliente))
+    setTabActivo('Pendientes')
+  }
 
   if (cargando) {
     return (
@@ -369,107 +305,226 @@ export function CuentasPorCobrar() {
         </div>
       </div>
 
-      {ventasFiltradas.length === 0 ? (
+      {gruposFiltrados.length === 0 ? (
         <div className="text-center py-12 text-slate-500 text-sm">
           No se encontraron deudas para este técnico.
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-lg border border-slate-200 shadow-sm">
-          <table className="w-full text-xs md:text-sm">
-            <thead>
-              <tr className="bg-slate-100 text-slate-600 uppercase text-xs tracking-wider">
-                <th className="text-left px-3 py-3 font-semibold">FECHA</th>
-                <th className="text-left px-3 py-3 font-semibold">CLIENTE</th>
-                <th className="text-center px-3 py-3 font-semibold">ESTADO</th>
-                <th className="text-left px-3 py-3 font-semibold">CATEGORÍA</th>
-                <th className="text-left px-3 py-3 font-semibold">MODELO</th>
-                <th className="text-center px-3 py-3 font-semibold">CANT</th>
-                <th className="text-right px-3 py-3 font-semibold">DEUDA</th>
-                <th className="text-right px-3 py-3 font-semibold">ACCIONES</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200">
-              {ventasFiltradas.map((venta) => {
-                const det = venta.detalles_venta[0]
-                const modelo = det?.repuestos.modelos?.nombre ?? '—'
-                const marca = det?.repuestos.modelos?.marcas?.nombre ?? '—'
-                const categoria = det?.repuestos.categorias?.nombre ?? '—'
-                const distribuidor = det?.repuestos.distribuidores?.nombre ?? ''
-                const detalles = det?.repuestos.atributos ?? {}
-                const extras = det ? formatearDetalles(distribuidor, detalles) : ''
-                return (
-                  <tr key={venta.id_venta} className="hover:bg-gray-50 transition-colors">
-                    <td className="px-3 py-3 text-slate-500 whitespace-nowrap">
-                      {formatFecha(venta.fecha_hora)}
-                    </td>
-                    <td className="px-3 py-3 font-medium text-slate-800 whitespace-nowrap">
-                      {venta.alias_tecnico}
-                    </td>
-                    <td className="px-3 py-3 text-center">
-                      <span
-                        className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-semibold ${
-                          venta.estado_pago === 'Fiado'
-                            ? 'bg-orange-100 text-orange-700'
-                            : 'bg-blue-100 text-blue-700'
-                        }`}
-                      >
-                        {venta.estado_pago}
-                      </span>
-                    </td>
-                    <td className="px-3 py-3 text-slate-700">
-                      {categoria}
-                    </td>
-                    <td className="px-3 py-3">
-                      {det ? (
-                        <>
-                          <span className="font-medium text-slate-800">
-                            {marca} {modelo}
+        <div className="space-y-3">
+          {gruposFiltrados.map((grupo) => {
+            const abierto = clienteAbierto === grupo.cliente
+            return (
+              <div
+                key={grupo.cliente}
+                className="rounded-lg border border-slate-200 bg-white shadow-sm overflow-hidden"
+              >
+                <button
+                  onClick={() => toggleCliente(grupo.cliente)}
+                  className="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-50 transition-colors cursor-pointer"
+                >
+                  <span className="w-9 h-9 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center shrink-0">
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.8}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                    </svg>
+                  </span>
+                  <span className="flex-1 text-left">
+                    <span className="block font-semibold text-slate-800">
+                      {grupo.cliente}
+                    </span>
+                    <span className="block text-xs text-slate-500">
+                      {grupo.itemsPendientes.length} ítem(s) pendiente(s)
+                    </span>
+                  </span>
+                  <span
+                    className={`rounded-full px-3 py-1 text-sm font-bold whitespace-nowrap ${
+                      grupo.deudaActiva > 0
+                        ? 'bg-amber-100 text-amber-700'
+                        : 'bg-emerald-100 text-emerald-700'
+                    }`}
+                  >
+                    $ {grupo.deudaActiva.toFixed(2)}
+                  </span>
+                  <svg
+                    className={`w-5 h-5 text-slate-400 transition-transform duration-200 ${
+                      abierto ? 'rotate-180' : ''
+                    }`}
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                    strokeWidth={2}
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
+
+                {abierto && (
+                  <div className="border-t border-slate-200 p-4">
+                    <div className="flex gap-1 border-b border-slate-200 mb-3">
+                      {(['Pendientes', 'Historial'] as const).map((tab) => (
+                        <button
+                          key={tab}
+                          onClick={() => setTabActivo(tab)}
+                          className={`px-3 py-2 text-sm font-medium border-b-2 transition-colors cursor-pointer ${
+                            tabActivo === tab
+                              ? 'border-blue-600 text-blue-700'
+                              : 'border-transparent text-slate-500 hover:text-slate-700'
+                          }`}
+                        >
+                          {tab}
+                          <span className="ml-1.5 rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600">
+                            {tab === 'Pendientes'
+                              ? grupo.itemsPendientes.length
+                              : grupo.itemsHistorial.length}
                           </span>
-                          {extras && (
-                            <p className="text-xs text-gray-500 mt-0.5">
-                              [{extras}]
-                            </p>
-                          )}
-                        </>
+                        </button>
+                      ))}
+                    </div>
+
+                    {tabActivo === 'Pendientes' ? (
+                      grupo.itemsPendientes.length === 0 ? (
+                        <div className="text-center py-8 text-slate-500 text-sm">
+                          No hay ítems pendientes para este cliente.
+                        </div>
                       ) : (
-                        <span className="text-slate-400">—</span>
-                      )}
-                    </td>
-                    <td className="px-3 py-3 text-center font-medium text-slate-800">
-                      {det?.cantidad ?? '—'}
-                    </td>
-                    <td className="px-3 py-3 text-right">
-                      <span className="font-bold text-slate-800 whitespace-nowrap">
-                        $ {venta.total.toFixed(2)}
-                      </span>
-                    </td>
-                    <td className="px-3 py-3">
-                      <div className="flex justify-end gap-2">
-                        <button
-                          onClick={() => setDevolviendo(venta)}
-                          className="rounded-lg border border-red-300 px-3 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-50 transition-colors cursor-pointer"
-                        >
-                          Devolución
-                        </button>
-                        <button
-                          onClick={() => setLiquidando(venta)}
-                          className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 transition-colors cursor-pointer"
-                        >
-                          Liquidar
-                        </button>
+                        <div className="overflow-x-auto rounded-lg border border-slate-200">
+                          <table className="w-full text-xs md:text-sm">
+                            <thead>
+                              <tr className="bg-slate-50 text-slate-600 uppercase text-xs tracking-wider">
+                                <th className="text-left px-3 py-2.5 font-semibold">FECHA</th>
+                                <th className="text-left px-3 py-2.5 font-semibold">ÍTEM</th>
+                                <th className="text-center px-3 py-2.5 font-semibold">CANT</th>
+                                <th className="text-right px-3 py-2.5 font-semibold">DEUDA</th>
+                                <th className="text-right px-3 py-2.5 font-semibold">ACCIONES</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-100">
+                              {grupo.itemsPendientes.map((fila) => {
+                                const det = fila.detalle_enfocado
+                                const { modelo, marca, categoria, extras } = descripcionItem(det)
+                                return (
+                                  <tr key={`${fila.id_venta}-${det.id_detalle}`} className="hover:bg-slate-50 transition-colors">
+                                    <td className="px-3 py-2.5 text-slate-500 whitespace-nowrap">
+                                      {formatFecha(fila.fecha_hora)}
+                                    </td>
+                                    <td className="px-3 py-2.5">
+                                      <span className="font-medium text-slate-800">
+                                        {categoria} · {marca} {modelo}
+                                      </span>
+                                      {extras && (
+                                        <p className="text-xs text-gray-500 mt-0.5">[{extras}]</p>
+                                      )}
+                                    </td>
+                                    <td className="px-3 py-2.5 text-center font-medium text-slate-800">
+                                      {det.cantidad}
+                                    </td>
+                                    <td className="px-3 py-2.5 text-right">
+                                      <span className="font-bold text-slate-800 whitespace-nowrap">
+                                        $ {det.subtotal.toFixed(2)}
+                                      </span>
+                                    </td>
+                                    <td className="px-3 py-2.5">
+                                      <div className="flex justify-end gap-2">
+                                        <button
+                                          onClick={() => setDevolviendo(fila)}
+                                          title="Devolver pieza en buen estado a stock"
+                                          className="rounded-lg border border-blue-300 px-3 py-1.5 text-xs font-semibold text-blue-600 hover:bg-blue-50 transition-colors cursor-pointer"
+                                        >
+                                          Devolver
+                                        </button>
+                                        <button
+                                          onClick={() => setLiquidando(fila)}
+                                          className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 transition-colors cursor-pointer"
+                                        >
+                                          Liquidar
+                                        </button>
+                                        <button
+                                          onClick={() => setGarantia(fila)}
+                                          title="Devolución / Garantía"
+                                          className="rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-600 transition-colors cursor-pointer"
+                                        >
+                                          🛡️
+                                        </button>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                )
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      )
+                    ) : grupo.itemsHistorial.length === 0 ? (
+                      <div className="text-center py-8 text-slate-500 text-sm">
+                        Sin historial de pagos para este cliente.
                       </div>
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
+                    ) : (
+                      <div className="overflow-x-auto rounded-lg border border-slate-200">
+                        <table className="w-full text-xs md:text-sm">
+                          <thead>
+                            <tr className="bg-slate-50 text-slate-600 uppercase text-xs tracking-wider">
+                              <th className="text-left px-3 py-2.5 font-semibold">FECHA</th>
+                              <th className="text-left px-3 py-2.5 font-semibold">ÍTEM</th>
+                              <th className="text-center px-3 py-2.5 font-semibold">CANT</th>
+                              <th className="text-right px-3 py-2.5 font-semibold">MONTO</th>
+                              <th className="text-center px-3 py-2.5 font-semibold">ESTADO</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-gray-100">
+                            {grupo.itemsHistorial.map((fila) => {
+                              const det = fila.detalle_enfocado
+                              const { modelo, marca, categoria, extras } = descripcionItem(det)
+                              const estado = det.estado_item ?? '—'
+                              return (
+                                <tr key={`${fila.id_venta}-${det.id_detalle}`} className="hover:bg-slate-50 transition-colors">
+                                  <td className="px-3 py-2.5 text-slate-500 whitespace-nowrap">
+                                    {formatFecha(det.fecha_pago_item ?? fila.fecha_hora)}
+                                  </td>
+                                  <td className="px-3 py-2.5">
+                                    <span className="font-medium text-slate-800">
+                                      {categoria} · {marca} {modelo}
+                                    </span>
+                                    {extras && (
+                                      <p className="text-xs text-gray-500 mt-0.5">[{extras}]</p>
+                                    )}
+                                  </td>
+                                  <td className="px-3 py-2.5 text-center font-medium text-slate-800">
+                                    {det.cantidad}
+                                  </td>
+                                  <td className="px-3 py-2.5 text-right">
+                                    <span className="font-bold text-slate-800 whitespace-nowrap">
+                                      $ {det.subtotal.toFixed(2)}
+                                    </span>
+                                  </td>
+                                  <td className="px-3 py-2.5 text-center">
+                                    <span
+                                      className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-semibold ${
+                                        estado === 'Liquidado'
+                                          ? 'bg-emerald-100 text-emerald-700'
+                                          : 'bg-blue-100 text-blue-700'
+                                      }`}
+                                    >
+                                      {estado}
+                                    </span>
+                                  </td>
+                                </tr>
+                              )
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )
+          })}
         </div>
       )}
 
       {liquidando && (
         <LiquidarModal
           venta={liquidando}
+          detalle={liquidando.detalle_enfocado}
           onClose={() => setLiquidando(null)}
           onSuccess={() => {
             setLiquidando(null)
@@ -481,9 +536,22 @@ export function CuentasPorCobrar() {
       {devolviendo && (
         <DevolucionModal
           venta={devolviendo}
+          detalle={devolviendo.detalle_enfocado}
           onClose={() => setDevolviendo(null)}
           onSuccess={() => {
             setDevolviendo(null)
+            cargarVentas()
+          }}
+        />
+      )}
+
+      {garantia && (
+        <ModalGarantiaCliente
+          venta={garantia}
+          detalleInicial={garantia.detalle_enfocado}
+          onClose={() => setGarantia(null)}
+          onSuccess={() => {
+            setGarantia(null)
             cargarVentas()
           }}
         />

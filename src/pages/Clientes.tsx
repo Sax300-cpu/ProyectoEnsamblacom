@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
+import { toast } from '../components/Toaster'
+import { ConfirmDialog } from '../components/ConfirmDialog'
 
 interface Cliente {
   id_cliente: number
@@ -15,12 +17,19 @@ const initialForm: Omit<Cliente, 'id_cliente' | 'fecha_creacion'> = {
   direccion: '',
 }
 
+const MENSAJE_CLIENTE_DUPLICADO =
+  '⚠️ Ya existe un cliente registrado con este nombre o contacto. Búscalo en la lista.'
+
+const esErrorDuplicado = (err: { message?: string; code?: string } | null): boolean =>
+  err?.code === '23505' || (err?.message ?? '').toLowerCase().includes('duplicate key')
+
 export function Clientes() {
   const [clientes, setClientes] = useState<Cliente[]>([])
   const [cargando, setCargando] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [modalOpen, setModalOpen] = useState(false)
   const [editando, setEditando] = useState<Cliente | null>(null)
+  const [borrar, setBorrar] = useState<Cliente | null>(null)
 
   const cargarClientes = async () => {
     setCargando(true)
@@ -43,15 +52,18 @@ export function Clientes() {
     cargarClientes()
   }, [])
 
-  const handleEliminar = async (id_cliente: number) => {
-    if (!confirm('¿Eliminar este cliente?')) return
+  const handleEliminar = (c: Cliente) => setBorrar(c)
+
+  const confirmarEliminar = async () => {
+    if (!borrar) return
     const { error: err } = await supabase
       .from('clientes')
       .delete()
-      .eq('id_cliente', id_cliente)
+      .eq('id_cliente', borrar.id_cliente)
 
+    setBorrar(null)
     if (err) {
-      alert('Error al eliminar: ' + err.message)
+      toast.error('❌ Error al eliminar: ' + err.message)
       return
     }
     cargarClientes()
@@ -115,7 +127,7 @@ export function Clientes() {
                         Editar
                       </button>
                       <button
-                        onClick={() => handleEliminar(c.id_cliente)}
+                        onClick={() => handleEliminar(c)}
                         className="bg-red-500 text-white hover:bg-red-600 px-3 py-1 text-xs font-semibold rounded-md transition-colors cursor-pointer"
                       >
                         Eliminar
@@ -141,6 +153,15 @@ export function Clientes() {
           }}
         />
       )}
+
+      <ConfirmDialog
+        abierto={!!borrar}
+        titulo="Eliminar cliente"
+        mensaje={`¿Eliminar "${borrar?.nombre ?? ''}"?`}
+        confirmarTexto="Eliminar"
+        onCancel={() => setBorrar(null)}
+        onConfirm={confirmarEliminar}
+      />
     </section>
   )
 }
@@ -183,36 +204,53 @@ function ModalCliente({ cliente, onClose, onSuccess }: ModalProps) {
 
     setEnviando(true)
 
+    const nombreNormalizado = form.nombre.trim().replace(/\s+/g, ' ')
+    const telefonoNormalizado = form.telefono.trim()
+
     if (cliente) {
       const { error: err } = await supabase
         .from('clientes')
         .update({
-          nombre: form.nombre.trim(),
-          telefono: form.telefono.trim(),
+          nombre: nombreNormalizado,
+          telefono: telefonoNormalizado,
           direccion: form.direccion.trim(),
         })
         .eq('id_cliente', cliente.id_cliente)
 
       setEnviando(false)
       if (err) {
-        setError(err.message)
+        setError(esErrorDuplicado(err) ? MENSAJE_CLIENTE_DUPLICADO : err.message)
         return
       }
       onSuccess()
       return
     }
 
+    const orParts = [`nombre.ilike.${nombreNormalizado}`]
+    if (telefonoNormalizado) orParts.push(`telefono.eq.${telefonoNormalizado}`)
+
+    const { data: existente } = await supabase
+      .from('clientes')
+      .select('id_cliente')
+      .or(orParts.join(','))
+
+    if (existente && existente.length > 0) {
+      setEnviando(false)
+      toast.error(MENSAJE_CLIENTE_DUPLICADO)
+      return
+    }
+
     const { error: err } = await supabase
       .from('clientes')
       .insert({
-        nombre: form.nombre.trim(),
-        telefono: form.telefono.trim(),
+        nombre: nombreNormalizado,
+        telefono: telefonoNormalizado,
         direccion: form.direccion.trim(),
       })
 
     setEnviando(false)
     if (err) {
-      setError(err.message)
+      setError(esErrorDuplicado(err) ? MENSAJE_CLIENTE_DUPLICADO : err.message)
       return
     }
     onSuccess()

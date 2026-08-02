@@ -81,6 +81,10 @@ export interface DetalleVenta {
   cantidad: number
   precio_unitario: number
   subtotal: number
+  estado_item?: 'Pendiente' | 'Liquidado' | 'Devuelto'
+  fecha_pago_item?: string | null
+  metodo_pago_item?: string | null
+  referencia_item?: string | null
 }
 
 export interface DetalleVentaConRepuesto extends DetalleVenta {

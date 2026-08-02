@@ -5,7 +5,7 @@ const secciones = [
     key: 'pantallas',
     titulo: 'Pantallas',
     descripcion: 'Gestión de pantallas',
-    emoji: '🖥️',
+    emoji: '📱',
   },
   {
     key: 'repuestos',
