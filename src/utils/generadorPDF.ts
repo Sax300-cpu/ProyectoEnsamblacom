@@ -182,7 +182,18 @@ export function generarReportePeriodoPDF(
   )
   doc.setTextColor(0)
 
-  const agrupadas = agruparParaReporte(datos)
+  const agrupadas = agruparParaReporte(datos).sort((a, b) => {
+    const catA = (a.categoria ?? '').toLowerCase()
+    const catB = (b.categoria ?? '').toLowerCase()
+    if ((catA === 'pantallas') !== (catB === 'pantallas')) {
+      return catA === 'pantallas' ? -1 : 1
+    }
+    return (
+      catA.localeCompare(catB, 'es', { sensitivity: 'base' }) ||
+      (a.marca ?? '').localeCompare(b.marca ?? '', 'es', { sensitivity: 'base' }) ||
+      (a.modelo ?? '').localeCompare(b.modelo ?? '', 'es', { sensitivity: 'base' })
+    )
+  })
 
   let totalEfectivo = 0
   let totalTransferencia = 0
