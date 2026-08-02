@@ -24,6 +24,7 @@ interface CuarentenaRow {
     stock: number
     atributos: Record<string, unknown>
     modelos: { id_modelo: number; nombre: string; marcas: { id_marca: number; nombre: string } } | null
+    categorias: { id_categoria: number; nombre: string }
     distribuidores: { id_distribuidor: number; nombre: string }
   } | null
   ventas: { alias_tecnico: string | null } | null
@@ -67,6 +68,7 @@ export function Garantias() {
             nombre,
             marcas ( id_marca, nombre )
           ),
+          categorias!inner ( id_categoria, nombre ),
           distribuidores!inner ( id_distribuidor, nombre )
         ),
         ventas ( alias_tecnico )
@@ -129,8 +131,8 @@ export function Garantias() {
 
   const nombreProducto = (fila: CuarentenaRow) => {
     const modelo = fila.repuestos?.modelos?.nombre ?? '—'
-    const marca = fila.repuestos?.modelos?.marcas?.nombre ?? '—'
-    return `${marca} ${modelo}`.trim()
+    const categoria = fila.repuestos?.categorias?.nombre ?? '—'
+    return `${categoria} · ${modelo}`
   }
 
   const detallesProducto = (fila: CuarentenaRow) => {
