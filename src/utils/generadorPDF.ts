@@ -19,59 +19,84 @@ interface DatosRecibo {
   tituloDocumento: string
 }
 
-export function generarReciboVenta(datos: DatosRecibo) {
-  const doc = new jsPDF()
+const URL_IMAGEN = '/imagenBuena.png'
 
-  doc.setFontSize(18)
+function cargarImagen(): Promise<HTMLImageElement | null> {
+  return new Promise((resolve) => {
+    const img = new Image()
+    img.onload = () => resolve(img)
+    img.onerror = () => resolve(null)
+    img.src = URL_IMAGEN
+  })
+}
+
+export async function generarReciboVenta(datos: DatosRecibo) {
+  const doc = new jsPDF({ unit: 'mm', format: [80, 250] })
+
+  const imagen = await cargarImagen()
+
+  const anchoImg = 60
+  const altoImg = 22
+  const yImg = 4
+  const baseY = imagen ? yImg + altoImg + 5 : 34
+
+  if (imagen) {
+    doc.addImage(imagen, 'PNG', (80 - anchoImg) / 2, yImg, anchoImg, altoImg)
+  }
+
+  doc.setFontSize(9)
   doc.setFont('helvetica', 'bold')
-  doc.text(datos.tituloDocumento, doc.internal.pageSize.width / 2, 22, { align: 'center' })
+  doc.text(datos.tituloDocumento, 40, baseY, { align: 'center' })
 
-  doc.setFontSize(11)
+  doc.setFontSize(8)
   doc.setFont('helvetica', 'normal')
-  doc.text(`Fecha: ${datos.fecha}`, 14, 36)
+  doc.text(`Fecha: ${datos.fecha}`, 40, baseY + 5, { align: 'center' })
 
   doc.setFont('helvetica', 'bold')
-  doc.text(`Cliente: ${datos.nombreCliente}`, 14, 44)
+  doc.text(`Cliente: ${datos.nombreCliente}`, 40, baseY + 10, { align: 'center' })
 
   autoTable(doc, {
-    startY: 54,
-    head: [['Categoría', 'Marca', 'Modelo', 'Cantidad', 'P. Unitario', 'Subtotal']],
+    startY: baseY + 18,
+    head: [['CNT', 'CTG', 'ÍTEM', 'P.U.', 'SUBT']],
     body: datos.detallesRepuesto.map((item) => [
-      item.categoria,
-      item.marca,
-      item.modelo,
       item.cantidad.toString(),
+      item.categoria,
+      item.modelo,
       `$ ${item.precioUnitario.toFixed(2)}`,
       `$ ${item.subtotal.toFixed(2)}`,
     ]),
-    theme: 'striped',
-    headStyles: { fillColor: [30, 64, 175] },
-    styles: { fontSize: 9 },
+    theme: 'plain',
+    headStyles: { textColor: [30, 64, 175], fontStyle: 'bold', fontSize: 7 },
+    styles: { fontSize: 7, cellPadding: 0.5 },
     columnStyles: {
-      0: { cellWidth: 30 },
-      1: { cellWidth: 30 },
-      2: { cellWidth: 'auto' },
-      3: { halign: 'center', cellWidth: 20 },
-      4: { halign: 'right', cellWidth: 28 },
-      5: { halign: 'right', cellWidth: 28 },
+      0: { halign: 'center', cellWidth: 6 },
+      1: { cellWidth: 14 },
+      2: { cellWidth: 23 },
+      3: { halign: 'right', cellWidth: 11 },
+      4: { halign: 'right', cellWidth: 12 },
     },
-    margin: { left: 10, right: 10 },
+    margin: { left: 6, right: 6 },
   })
 
-  const finalY = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 10
+  const finalY = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY
 
-  doc.setFontSize(14)
+  doc.setDrawColor(150)
+  doc.setLineDashPattern([1.5, 1.5], 0)
+  doc.line(6, finalY + 3, 74, finalY + 3)
+  doc.setLineDashPattern([], 0)
+
+  doc.setFontSize(9)
   doc.setFont('helvetica', 'bold')
-  doc.text(`Total: $ ${datos.total.toFixed(2)}`, doc.internal.pageSize.width - 10, finalY, { align: 'right' })
+  doc.text(`Total: $ ${datos.total.toFixed(2)}`, 74, finalY + 12, { align: 'right' })
 
-  doc.setFontSize(8)
+  doc.setFontSize(6.5)
   doc.setFont('helvetica', 'italic')
   doc.setTextColor(100)
   doc.text(
     'Una vez salida la mercadería no se aceptan devoluciones. Todo repuesto o pantalla debe ser probado en el momento de la entrega.',
-    doc.internal.pageSize.width / 2,
-    finalY + 14,
-    { align: 'center', maxWidth: doc.internal.pageSize.width - 20 },
+    40,
+    finalY + 20,
+    { align: 'center', maxWidth: 68 },
   )
   doc.setTextColor(0)
 
