@@ -1,6 +1,5 @@
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
-import type { VentaConDetalles } from '../types/database'
 
 interface ItemPDF {
   categoria: string
@@ -30,9 +29,7 @@ function cargarImagen(): Promise<HTMLImageElement | null> {
   })
 }
 
-export async function generarReciboVenta(datos: DatosRecibo) {
-  const doc = new jsPDF({ unit: 'mm', format: [80, 250] })
-
+async function dibujarTicket(doc: jsPDF, datos: DatosRecibo) {
   const imagen = await cargarImagen()
 
   const anchoImg = 60
@@ -99,10 +96,25 @@ export async function generarReciboVenta(datos: DatosRecibo) {
     { align: 'center', maxWidth: 68 },
   )
   doc.setTextColor(0)
+}
+
+export async function generarReciboVenta(datos: DatosRecibo) {
+  const doc = new jsPDF({ unit: 'mm', format: [80, 250] })
+
+  await dibujarTicket(doc, datos)
 
   const fechaStr = datos.fecha.replace(/[/\s:]/g, '-')
   const prefijo = datos.tituloDocumento.toLowerCase().includes('credito') ? 'recibo_credito' : 'recibo_venta'
   doc.save(`${prefijo}_${fechaStr}.pdf`)
+}
+
+export async function generarTicketCobroLote(datos: DatosRecibo) {
+  const doc = new jsPDF({ unit: 'mm', format: [80, 250] })
+
+  await dibujarTicket(doc, datos)
+
+  const fechaStr = datos.fecha.replace(/[/\s:]/g, '-')
+  doc.save(`recibo_cobro_lote_${fechaStr}.pdf`)
 }
 
 function formatearFechaLarga(iso: string) {
@@ -111,8 +123,32 @@ function formatearFechaLarga(iso: string) {
   })
 }
 
+export interface FilaReporteInput {
+  categoria: string
+  marca: string
+  modelo: string
+  cantidad: number
+  total: number
+  metodoPago: string
+}
+
+function agruparParaReporte(datos: FilaReporteInput[]): FilaReporteInput[] {
+  const mapa = new Map<string, FilaReporteInput>()
+  for (const fila of datos) {
+    const llave = `${fila.categoria}||${fila.marca}||${fila.modelo}||${fila.metodoPago}`
+    const existente = mapa.get(llave)
+    if (existente) {
+      existente.cantidad += fila.cantidad
+      existente.total += fila.total
+    } else {
+      mapa.set(llave, { ...fila })
+    }
+  }
+  return Array.from(mapa.values())
+}
+
 export function generarReportePeriodoPDF(
-  ventas: VentaConDetalles[],
+  datos: FilaReporteInput[],
   fechaInicio: string,
   fechaFin: string,
 ) {
@@ -146,54 +182,47 @@ export function generarReportePeriodoPDF(
   )
   doc.setTextColor(0)
 
+  const agrupadas = agruparParaReporte(datos)
+
   let totalEfectivo = 0
   let totalTransferencia = 0
   let granTotal = 0
 
-  const ventasValidas = ventas.filter(
-    (v) => v.total > 0 && v.detalles_venta.length > 0,
-  )
+  for (const fila of agrupadas) {
+    granTotal += fila.total
+    if (fila.metodoPago === 'Efectivo') totalEfectivo += fila.total
+    else if (fila.metodoPago === 'Transferencia') totalTransferencia += fila.total
+  }
 
-  const cuerpo = ventasValidas.map((v) => {
-    const det = v.detalles_venta[0]
-    const categoria = det?.repuestos.categorias?.nombre ?? '—'
-    const marca = det?.repuestos.modelos?.marcas?.nombre ?? '—'
-    const modelo = det?.repuestos.modelos?.nombre ?? '—'
-    const cantidad = det?.cantidad ?? 0
-    const pago = v.metodo_pago ?? '—'
-    const fechaReal = v.fecha_cobro ? v.fecha_cobro : v.fecha_hora
-    const fecha = new Date(fechaReal).toLocaleDateString('es-PE', {
-      day: '2-digit', month: '2-digit', year: 'numeric',
-    })
-
-    granTotal += v.total
-    if (v.metodo_pago === 'Efectivo') totalEfectivo += v.total
-    else if (v.metodo_pago === 'Transferencia') totalTransferencia += v.total
-
-    return [fecha, categoria, marca, modelo, cantidad.toString(), pago, `$ ${v.total.toFixed(2)}`]
-  })
+  const cuerpo = agrupadas.map((fila) => [
+    fila.categoria,
+    fila.marca,
+    fila.modelo,
+    fila.cantidad.toString(),
+    fila.metodoPago,
+    `$ ${fila.total.toFixed(2)}`,
+  ])
 
   autoTable(doc, {
     startY: 44,
-    head: [['FECHA', 'CATEGORÍA', 'MARCA', 'MODELO', 'CANTIDAD', 'PAGO', 'TOTAL']],
+    head: [['CATEGORÍA', 'MARCA', 'MODELO', 'CANTIDAD', 'PAGO', 'TOTAL']],
     body: cuerpo,
     foot: [
-      ['', '', '', '', 'TOTAL EFECTIVO', '', `$ ${totalEfectivo.toFixed(2)}`],
-      ['', '', '', '', 'TOTAL TRANSFERENCIAS', '', `$ ${totalTransferencia.toFixed(2)}`],
-      ['', '', '', '', 'GRAN TOTAL', '', `$ ${granTotal.toFixed(2)}`],
+      ['', '', '', '', 'TOTAL EFECTIVO', `$ ${totalEfectivo.toFixed(2)}`],
+      ['', '', '', '', 'TOTAL TRANSFERENCIAS', `$ ${totalTransferencia.toFixed(2)}`],
+      ['', '', '', '', 'GRAN TOTAL', `$ ${granTotal.toFixed(2)}`],
     ],
     theme: 'grid',
     headStyles: { fillColor: [30, 64, 175], halign: 'center' },
     footStyles: { fillColor: [241, 245, 249], textColor: [15, 23, 42], fontStyle: 'bold' },
     styles: { valign: 'middle', fontSize: 9 },
     columnStyles: {
-      0: { halign: 'center', cellWidth: 30 },
+      0: { cellWidth: 28 },
       1: { cellWidth: 28 },
-      2: { cellWidth: 28 },
-      3: { cellWidth: 'auto' },
-      4: { halign: 'center', cellWidth: 20 },
-      5: { halign: 'center', cellWidth: 25 },
-      6: { halign: 'right', cellWidth: 30 },
+      2: { cellWidth: 'auto' },
+      3: { halign: 'center', cellWidth: 20 },
+      4: { halign: 'center', cellWidth: 25 },
+      5: { halign: 'right', cellWidth: 30 },
     },
     margin: { left: 10, right: 10 },
   })

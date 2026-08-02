@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
-import type { VentaConDetalles } from '../types/database'
-import { formatearDetalles } from '../lib/format'
+import type { VentaConDetalles, MetodoPago } from '../types/database'
+import { formatearDetalles, formatearFechaComprobante } from '../lib/format'
 import { LiquidarModal } from '../components/LiquidarModal'
 import { ModalGarantiaCliente } from '../components/ModalGarantiaCliente'
+import { generarTicketCobroLote } from '../utils/generadorPDF'
 import { toast } from '../components/Toaster'
 
 type DetalleDeuda = VentaConDetalles['detalles_venta'][number]
@@ -190,6 +191,201 @@ function DevolucionModal({
   )
 }
 
+function LiquidarLoteModal({
+  items,
+  onClose,
+  onSuccess,
+}: {
+  items: FilaDeuda[]
+  onClose: () => void
+  onSuccess: () => void
+}) {
+  const [metodo, setMetodo] = useState<MetodoPago>('Efectivo')
+  const [referencia, setReferencia] = useState('')
+  const [enviando, setEnviando] = useState(false)
+  const esTransferencia = metodo === 'Transferencia'
+
+  const totalLote = items.reduce((sum, f) => sum + f.detalle_enfocado.subtotal, 0)
+  const ids = items.map((f) => f.detalle_enfocado.id_detalle)
+  const ventasAfectadas = [...new Set(items.map((f) => f.id_venta))]
+  const tecnicos = [...new Set(items.map((f) => f.alias_tecnico))]
+
+  const handleConfirm = async () => {
+    if (esTransferencia && !referencia.trim()) {
+      toast.error('Por favor, ingresa la referencia de la transferencia.')
+      return
+    }
+
+    setEnviando(true)
+
+    try {
+      const fechaPago = new Date().toISOString()
+
+      const { error: errDet } = await supabase
+        .from('detalles_venta')
+        .update({
+          estado_item: 'Liquidado',
+          fecha_pago_item: fechaPago,
+          metodo_pago_item: metodo,
+          referencia_item: referencia.trim() || null,
+        })
+        .in('id_detalle', ids)
+      if (errDet) throw errDet
+
+      for (const idVenta of ventasAfectadas) {
+        const venta = items.find((f) => f.id_venta === idVenta)!
+
+        const nuevoTotal = Math.max(
+          0,
+          Math.round(
+            venta.detalles_venta
+              .filter(
+                (d) =>
+                  !ids.includes(d.id_detalle) &&
+                  d.estado_item !== 'Liquidado' &&
+                  d.estado_item !== 'Devuelto',
+              )
+              .reduce((sum, d) => sum + d.subtotal, 0) * 100,
+          ) / 100,
+        )
+
+        const updateVenta: Record<string, unknown> = {
+          total: nuevoTotal,
+          metodo_pago: metodo,
+          numero_comprobante: esTransferencia ? referencia.trim() : null,
+        }
+        if (nuevoTotal <= 0) {
+          updateVenta.estado_pago = 'Pagado'
+          updateVenta.fecha_cobro = 'now()'
+        }
+
+        const { error } = await supabase
+          .from('ventas')
+          .update(updateVenta)
+          .eq('id_venta', idVenta)
+        if (error) throw error
+      }
+
+      generarTicketCobroLote({
+        tituloDocumento: 'COMPROBANTE DE COBRO',
+        nombreCliente: tecnicos.join(', '),
+        fecha: formatearFechaComprobante(fechaPago) ?? '—',
+        detallesRepuesto: items.map((f) => {
+          const det = f.detalle_enfocado
+          return {
+            categoria: det.repuestos.categorias?.nombre ?? '—',
+            marca: det.repuestos.modelos?.marcas?.nombre ?? '—',
+            modelo: det.repuestos.modelos?.nombre ?? '—',
+            cantidad: det.cantidad,
+            precioUnitario: det.precio_unitario,
+            subtotal: det.subtotal,
+          }
+        }),
+        total: totalLote,
+      })
+
+      setEnviando(false)
+      onClose()
+      onSuccess()
+    } catch (error) {
+      setEnviando(false)
+      console.error('Error detallado:', error)
+      toast.error('Error al procesar el pago: ' + ((error as Error).message || JSON.stringify(error)))
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center">
+      <div
+        className="bg-white rounded-xl shadow-xl w-full max-w-md mx-4 p-6 space-y-4"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h3 className="text-lg font-semibold text-slate-800">Liquidar Deudas Seleccionadas</h3>
+
+        <div className="space-y-2 text-sm text-slate-600">
+          <p>
+            <span className="font-medium text-slate-700">Técnico:</span>{' '}
+            {tecnicos.join(', ')}
+          </p>
+          <div className="rounded-lg border border-slate-200 divide-y divide-slate-100 max-h-48 overflow-y-auto">
+            {items.map((f) => {
+              const det = f.detalle_enfocado
+              const { modelo, marca, categoria } = descripcionItem(det)
+              return (
+                <div
+                  key={det.id_detalle}
+                  className="flex items-center justify-between gap-2 px-3 py-2"
+                >
+                  <span className="truncate">
+                    {det.cantidad}x {categoria} {marca} {modelo}
+                  </span>
+                  <span className="font-semibold text-slate-800 whitespace-nowrap">
+                    $ {det.subtotal.toFixed(2)}
+                  </span>
+                </div>
+              )
+            })}
+          </div>
+          <p className="pt-1 flex items-center justify-between">
+            <span className="text-sm font-medium text-slate-700">Total a liquidar</span>
+            <span className="text-base font-bold text-slate-800 font-mono">
+              $ {totalLote.toFixed(2)}
+            </span>
+          </p>
+        </div>
+
+        <div className="space-y-2">
+          <label className="block text-sm font-medium text-slate-700">Método de Pago</label>
+          <select
+            value={metodo}
+            onChange={(e) => {
+              const nuevo = e.target.value as MetodoPago
+              if (nuevo === 'Efectivo') setReferencia('')
+              setMetodo(nuevo)
+            }}
+            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            <option value="Efectivo">Efectivo</option>
+            <option value="Transferencia">Transferencia</option>
+          </select>
+        </div>
+
+        {esTransferencia && (
+          <div className="space-y-2">
+            <label className="block text-sm font-medium text-slate-700">
+              Número de Comprobante <span className="text-red-500">(Obligatorio)</span>
+            </label>
+            <input
+              type="text"
+              value={referencia}
+              onChange={(e) => setReferencia(e.target.value)}
+              placeholder="Ej: #000123456"
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+        )}
+
+        <div className="flex justify-end gap-3 pt-2">
+          <button
+            onClick={onClose}
+            disabled={enviando}
+            className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors cursor-pointer"
+          >
+            Cancelar
+          </button>
+          <button
+            onClick={handleConfirm}
+            disabled={enviando || (esTransferencia && !referencia.trim())}
+            className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50 transition-colors cursor-pointer"
+          >
+            {enviando ? 'Procesando…' : `Liquidar $ ${totalLote.toFixed(2)}`}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export function CuentasPorCobrar() {
   const [ventas, setVentas] = useState<VentaConDetalles[]>([])
   const [cargando, setCargando] = useState(true)
@@ -199,12 +395,45 @@ export function CuentasPorCobrar() {
   const [busqueda, setBusqueda] = useState('')
   const [clienteAbierto, setClienteAbierto] = useState<string | null>(null)
   const [tabActivo, setTabActivo] = useState<TabInterna>('Pendientes')
+  const [seleccion, setSeleccion] = useState<Set<number>>(new Set())
+  const [liquidandoLote, setLiquidandoLote] = useState(false)
 
   const grupos = agruparPorCliente(ventas)
   const gruposFiltrados = grupos.filter((g) =>
     g.cliente.toLowerCase().includes(busqueda.toLowerCase()),
   )
   const totalAcumulado = gruposFiltrados.reduce((sum, g) => sum + g.deudaActiva, 0)
+
+  const todosPendientes = grupos.flatMap((g) => g.itemsPendientes)
+  const idsPendientes = new Set(todosPendientes.map((f) => f.detalle_enfocado.id_detalle))
+  const seleccionValida = new Set([...seleccion].filter((id) => idsPendientes.has(id)))
+  const itemsSeleccionados = todosPendientes.filter((f) =>
+    seleccionValida.has(f.detalle_enfocado.id_detalle),
+  )
+  const totalSeleccionado = itemsSeleccionados.reduce(
+    (sum, f) => sum + f.detalle_enfocado.subtotal,
+    0,
+  )
+
+  const toggleItem = (id: number) => {
+    setSeleccion((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const toggleGrupo = (grupo: GrupoCliente) => {
+    setSeleccion((prev) => {
+      const next = new Set(prev)
+      const idsGrupo = grupo.itemsPendientes.map((f) => f.detalle_enfocado.id_detalle)
+      const todosSeleccionados = idsGrupo.every((id) => next.has(id))
+      if (todosSeleccionados) idsGrupo.forEach((id) => next.delete(id))
+      else idsGrupo.forEach((id) => next.add(id))
+      return next
+    })
+  }
 
   const formatFecha = (fechaString: string) => {
     if (!fechaString) return 'Sin fecha'
@@ -390,6 +619,26 @@ export function CuentasPorCobrar() {
                           <table className="w-full text-xs md:text-sm">
                             <thead>
                               <tr className="bg-slate-50 text-slate-600 uppercase text-xs tracking-wider">
+                                <th className="px-3 py-2.5 font-semibold w-10">
+                                  <input
+                                    type="checkbox"
+                                    title="Seleccionar Todo"
+                                    checked={grupo.itemsPendientes.every((f) =>
+                                      seleccionValida.has(f.detalle_enfocado.id_detalle),
+                                    )}
+                                    ref={(el) => {
+                                      if (!el) return
+                                      const seleccionadosGrupo = grupo.itemsPendientes.filter(
+                                        (f) => seleccionValida.has(f.detalle_enfocado.id_detalle),
+                                      ).length
+                                      el.indeterminate =
+                                        seleccionadosGrupo > 0 &&
+                                        seleccionadosGrupo < grupo.itemsPendientes.length
+                                    }}
+                                    onChange={() => toggleGrupo(grupo)}
+                                    className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                                  />
+                                </th>
                                 <th className="text-left px-3 py-2.5 font-semibold">FECHA</th>
                                 <th className="text-left px-3 py-2.5 font-semibold">ÍTEM</th>
                                 <th className="text-center px-3 py-2.5 font-semibold">CANT</th>
@@ -401,8 +650,22 @@ export function CuentasPorCobrar() {
                               {grupo.itemsPendientes.map((fila) => {
                                 const det = fila.detalle_enfocado
                                 const { modelo, marca, categoria, extras } = descripcionItem(det)
+                                const marcado = seleccionValida.has(det.id_detalle)
                                 return (
-                                  <tr key={`${fila.id_venta}-${det.id_detalle}`} className="hover:bg-slate-50 transition-colors">
+                                  <tr
+                                    key={`${fila.id_venta}-${det.id_detalle}`}
+                                    className={`transition-colors ${
+                                      marcado ? 'bg-emerald-50' : 'hover:bg-slate-50'
+                                    }`}
+                                  >
+                                    <td className="px-3 py-2.5">
+                                      <input
+                                        type="checkbox"
+                                        checked={marcado}
+                                        onChange={() => toggleItem(det.id_detalle)}
+                                        className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                                      />
+                                    </td>
                                     <td className="px-3 py-2.5 text-slate-500 whitespace-nowrap">
                                       {formatFecha(fila.fecha_hora)}
                                     </td>
@@ -521,6 +784,16 @@ export function CuentasPorCobrar() {
         </div>
       )}
 
+      {itemsSeleccionados.length > 0 && (
+        <button
+          onClick={() => setLiquidandoLote(true)}
+          className="fixed bottom-6 right-6 z-40 rounded-full bg-emerald-600 px-5 py-3 text-sm font-bold text-white shadow-lg hover:bg-emerald-700 transition-colors cursor-pointer"
+        >
+          Liquidar {itemsSeleccionados.length} Seleccionado
+          {itemsSeleccionados.length > 1 ? 's' : ''} — $ {totalSeleccionado.toFixed(2)}
+        </button>
+      )}
+
       {liquidando && (
         <LiquidarModal
           venta={liquidando}
@@ -528,6 +801,18 @@ export function CuentasPorCobrar() {
           onClose={() => setLiquidando(null)}
           onSuccess={() => {
             setLiquidando(null)
+            cargarVentas()
+          }}
+        />
+      )}
+
+      {liquidandoLote && itemsSeleccionados.length > 0 && (
+        <LiquidarLoteModal
+          items={itemsSeleccionados}
+          onClose={() => setLiquidandoLote(false)}
+          onSuccess={() => {
+            setLiquidandoLote(false)
+            setSeleccion(new Set())
             cargarVentas()
           }}
         />
