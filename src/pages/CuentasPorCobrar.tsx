@@ -82,59 +82,92 @@ function DevolucionModal({
   const handleBueno = async () => {
     setEnviando(true)
 
+    const stockActual = detalle.repuestos.stock ?? 0
+    let stockComprometido = false
+
     try {
-      const stockActual = detalle.repuestos.stock ?? 0
-      const { error: errStock } = await supabase
+      const { data: repuestoActualizado, error: errStock } = await supabase
         .from('repuestos')
         .update({ stock: stockActual + cantidadDevuelta })
         .eq('id_repuesto', detalle.id_repuesto)
+        .select('id_repuesto')
       if (errStock) throw errStock
+      if (!repuestoActualizado || repuestoActualizado.length === 0) {
+        throw new Error('No se encontró el repuesto para devolver stock')
+      }
+      stockComprometido = true
 
       const otrosSubtotales = venta.detalles_venta
         .filter((d) => d.id_detalle !== detalle.id_detalle)
         .reduce((sum, d) => sum + d.subtotal, 0)
 
       if (esParcial) {
-        const { error: errDet } = await supabase
+        const { data: detalleActualizado, error: errDet } = await supabase
           .from('detalles_venta')
           .update({ cantidad: cantidadMax - cantidadDevuelta, subtotal: nuevoSubtotal })
           .eq('id_detalle', detalle.id_detalle)
+          .select('id_detalle')
         if (errDet) throw errDet
+        if (!detalleActualizado || detalleActualizado.length === 0) {
+          throw new Error('No se pudo actualizar el detalle de la venta')
+        }
 
         const nuevoTotal = Math.max(0, Math.round((otrosSubtotales + nuevoSubtotal) * 100) / 100)
-        const { error: errVta } = await supabase
+        const { data: ventaActualizada, error: errVta } = await supabase
           .from('ventas')
           .update({ total: nuevoTotal })
           .eq('id_venta', venta.id_venta)
+          .select('id_venta')
         if (errVta) throw errVta
+        if (!ventaActualizada || ventaActualizada.length === 0) {
+          throw new Error('No se pudo actualizar el total de la venta')
+        }
       } else {
-        const { error: errDel } = await supabase
+        const { data: detalleEliminado, error: errDel } = await supabase
           .from('detalles_venta')
           .delete()
           .eq('id_detalle', detalle.id_detalle)
+          .select('id_detalle')
         if (errDel) throw errDel
+        if (!detalleEliminado || detalleEliminado.length === 0) {
+          throw new Error('No se pudo eliminar el detalle de la venta (¿política RLS de DELETE?)')
+        }
 
         if (otrosSubtotales <= 0) {
-          const { error: errVta } = await supabase
+          const { data: ventaEliminada, error: errVta } = await supabase
             .from('ventas')
             .delete()
             .eq('id_venta', venta.id_venta)
+            .select('id_venta')
           if (errVta) throw errVta
+          if (!ventaEliminada || ventaEliminada.length === 0) {
+            throw new Error('No se pudo eliminar la venta (¿política RLS de DELETE?)')
+          }
         } else {
-          const { error: errVta } = await supabase
+          const { data: ventaActualizada, error: errVta } = await supabase
             .from('ventas')
             .update({ total: Math.round(otrosSubtotales * 100) / 100 })
             .eq('id_venta', venta.id_venta)
+            .select('id_venta')
           if (errVta) throw errVta
+          if (!ventaActualizada || ventaActualizada.length === 0) {
+            throw new Error('No se pudo actualizar el total de la venta')
+          }
         }
       }
 
       toast.success('Devolución procesada y stock actualizado')
       onSuccess()
     } catch (error) {
+      if (stockComprometido) {
+        await supabase
+          .from('repuestos')
+          .update({ stock: stockActual })
+          .eq('id_repuesto', detalle.id_repuesto)
+      }
       setEnviando(false)
       console.error('Error detallado:', error)
-      toast.error('Error al procesar: ' + ((error as Error).message || JSON.stringify(error)))
+      toast.error('Error al procesar la devolución: ' + ((error as Error).message || JSON.stringify(error)))
     }
   }
 
@@ -824,8 +857,20 @@ export function CuentasPorCobrar() {
           detalle={devolviendo.detalle_enfocado}
           onClose={() => setDevolviendo(null)}
           onSuccess={() => {
+            const idDetalle = devolviendo.detalle_enfocado.id_detalle
+            const idVenta = devolviendo.id_venta
+
+            setVentas((prev) =>
+              prev
+                .map((v) => {
+                  if (v.id_venta !== idVenta) return v
+                  const nuevos = v.detalles_venta.filter((d) => d.id_detalle !== idDetalle)
+                  if (nuevos.length === 0) return null
+                  return { ...v, detalles_venta: nuevos }
+                })
+                .filter(Boolean) as VentaConDetalles[],
+            )
             setDevolviendo(null)
-            cargarVentas()
           }}
         />
       )}
