@@ -61,7 +61,7 @@ interface RepuestosProps {
 }
 
 export function Repuestos({ refreshSignal }: RepuestosProps) {
-  const { isAdmin } = useAuth()
+  const { isAdmin, session, loading } = useAuth()
 
   const [repuestos, setRepuestos] = useState<RepuestoConRelaciones[]>([])
   const [cargando, setCargando] = useState(true)
@@ -126,6 +126,8 @@ export function Repuestos({ refreshSignal }: RepuestosProps) {
   }, [])
 
   useEffect(() => {
+    if (loading || !session) return
+
     setCargando(true)
     setError(null)
 
@@ -210,7 +212,7 @@ export function Repuestos({ refreshSignal }: RepuestosProps) {
     }
 
     fetchData()
-  }, [currentPage, buscar, filtroCategoria, filtroStock, refreshKey, refreshSignal])
+  }, [loading, session, currentPage, buscar, filtroCategoria, filtroStock, refreshKey, refreshSignal])
 
   return (
     <section>

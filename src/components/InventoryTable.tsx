@@ -23,7 +23,7 @@ export function InventoryTable({ seccion, buscar, refreshKey: stockRefreshKey = 
 
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE))
   const { addToCart, openCart, refreshKey } = useCart()
-  const { isAdmin } = useAuth()
+  const { isAdmin, session, loading } = useAuth()
   const [editModal, setEditModal] = useState<RepuestoConRelaciones | null>(null)
   const [localRefresh, setLocalRefresh] = useState(0)
 
@@ -32,6 +32,8 @@ export function InventoryTable({ seccion, buscar, refreshKey: stockRefreshKey = 
   }, [seccion, buscar])
 
   useEffect(() => {
+    if (loading || !session) return
+
     setCargando(true)
     setError(null)
 
@@ -117,7 +119,7 @@ export function InventoryTable({ seccion, buscar, refreshKey: stockRefreshKey = 
     }
 
     obtenerRepuestos()
-  }, [seccion, currentPage, buscar, refreshKey, stockRefreshKey, localRefresh])
+  }, [loading, session, seccion, currentPage, buscar, refreshKey, stockRefreshKey, localRefresh])
 
   if (cargando) {
     return (
