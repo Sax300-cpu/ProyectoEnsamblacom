@@ -8,7 +8,6 @@ import { ModalCuarentena } from '../components/ModalCuarentena'
 import { toast } from '../components/Toaster'
 import { mensajeErrorDuplicado } from '../lib/errores'
 
-const CATEGORIA_PANTALLAS = 1
 const PAGE_SIZE = 10
 
 interface AtributoField {
@@ -78,6 +77,16 @@ export function Repuestos({ refreshSignal }: RepuestosProps) {
   const [totalCount, setTotalCount] = useState(0)
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE))
   const [refreshKey, setRefreshKey] = useState(0)
+  const [categoriaPantallasId, setCategoriaPantallasId] = useState<number | null>(null)
+
+  useEffect(() => {
+    supabase
+      .from('categorias')
+      .select('id_categoria')
+      .ilike('nombre', 'Pantallas')
+      .maybeSingle()
+      .then(({ data }) => setCategoriaPantallasId(data?.id_categoria ?? null))
+  }, [])
 
   const { addToCart, openCart } = useCart()
 
@@ -120,10 +129,10 @@ export function Repuestos({ refreshSignal }: RepuestosProps) {
     supabase
       .from('categorias')
       .select('id_categoria, nombre')
-      .neq('id_categoria', CATEGORIA_PANTALLAS)
+      .neq('id_categoria', categoriaPantallasId ?? -1)
       .order('nombre')
       .then(({ data }) => setCategoriasFiltro((data ?? []) as Categoria[]))
-  }, [])
+  }, [categoriaPantallasId])
 
   useEffect(() => {
     if (loading || !session) return
@@ -132,10 +141,17 @@ export function Repuestos({ refreshSignal }: RepuestosProps) {
     setError(null)
 
     const fetchData = async () => {
+      if (categoriaPantallasId === null) {
+        setRepuestos([])
+        setTotalCount(0)
+        setCargando(false)
+        return
+      }
+
       let countQuery = supabase
         .from('repuestos')
         .select('*', { count: 'exact', head: true })
-        .neq('id_categoria', CATEGORIA_PANTALLAS)
+        .neq('id_categoria', categoriaPantallasId)
 
       let dataQuery = supabase
         .from('repuestos')
@@ -152,7 +168,7 @@ export function Repuestos({ refreshSignal }: RepuestosProps) {
           categorias!inner ( id_categoria, nombre ),
           distribuidores!inner ( id_distribuidor, nombre )
         `)
-        .neq('id_categoria', CATEGORIA_PANTALLAS)
+        .neq('id_categoria', categoriaPantallasId)
 
       if (buscar) {
         const term = `%${buscar.toLowerCase()}%`
@@ -212,7 +228,7 @@ export function Repuestos({ refreshSignal }: RepuestosProps) {
     }
 
     fetchData()
-  }, [loading, session, currentPage, buscar, filtroCategoria, filtroStock, refreshKey, refreshSignal])
+  }, [loading, session, currentPage, buscar, filtroCategoria, filtroStock, refreshKey, refreshSignal, categoriaPantallasId])
 
   return (
     <section>
@@ -442,6 +458,7 @@ export function Repuestos({ refreshSignal }: RepuestosProps) {
         <ModalRepuesto
           isAdmin={isAdmin}
           editando={editando}
+          categoriaPantallasId={categoriaPantallasId}
           onClose={() => { setModalOpen(false); setEditando(null) }}
           onSuccess={() => {
             setModalOpen(false)
@@ -480,11 +497,12 @@ export function Repuestos({ refreshSignal }: RepuestosProps) {
 interface ModalProps {
   isAdmin: boolean
   editando: RepuestoConRelaciones | null
+  categoriaPantallasId: number | null
   onClose: () => void
   onSuccess: () => void
 }
 
-function ModalRepuesto({ isAdmin, editando, onClose, onSuccess }: ModalProps) {
+function ModalRepuesto({ isAdmin, editando, categoriaPantallasId, onClose, onSuccess }: ModalProps) {
   const [form, setForm] = useState<FormState>(() => {
     if (editando) {
       const idMarca = editando.repuestos_compatibilidad[0]?.modelos.marcas.id_marca ?? ''
@@ -527,7 +545,7 @@ function ModalRepuesto({ isAdmin, editando, onClose, onSuccess }: ModalProps) {
   useEffect(() => {
     const cargar = async () => {
       const [{ data: cats }, { data: mars }, { data: dists }] = await Promise.all([
-        supabase.from('categorias').select('*').neq('id_categoria', CATEGORIA_PANTALLAS).order('nombre'),
+        supabase.from('categorias').select('*').neq('id_categoria', categoriaPantallasId ?? -1).order('nombre'),
         supabase.from('marcas').select('*').order('nombre'),
         supabase.from('distribuidores').select('*').order('nombre'),
       ])
@@ -537,7 +555,7 @@ function ModalRepuesto({ isAdmin, editando, onClose, onSuccess }: ModalProps) {
       setCargandoCatalogos(false)
     }
     cargar()
-  }, [])
+  }, [categoriaPantallasId])
 
   useEffect(() => {
     if (form.id_marca === '') {

@@ -8,7 +8,6 @@ import { ModalCuarentena } from '../components/ModalCuarentena'
 import { toast } from '../components/Toaster'
 import { mensajeErrorDuplicado } from '../lib/errores'
 
-const CATEGORIA_PANTALLAS = 1
 const PAGE_SIZE = 10
 
 /* ───── Atributos dinámicos ───── */
@@ -71,6 +70,16 @@ export function Pantallas({ refreshSignal }: PantallasProps) {
   const [totalCount, setTotalCount] = useState(0)
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE))
   const [refreshKey, setRefreshKey] = useState(0)
+  const [categoriaPantallas, setCategoriaPantallas] = useState<number | null>(null)
+
+  useEffect(() => {
+    supabase
+      .from('categorias')
+      .select('id_categoria')
+      .ilike('nombre', 'Pantallas')
+      .maybeSingle()
+      .then(({ data }) => setCategoriaPantallas(data?.id_categoria ?? null))
+  }, [])
 
   const { addToCart, openCart } = useCart()
 
@@ -118,10 +127,17 @@ export function Pantallas({ refreshSignal }: PantallasProps) {
     setError(null)
 
     const fetchData = async () => {
+      if (categoriaPantallas === null) {
+        setTotalCount(0)
+        setRepuestos([])
+        setCargando(false)
+        return
+      }
+
       let countQuery = supabase
         .from('repuestos')
         .select('*', { count: 'exact', head: true })
-        .eq('id_categoria', CATEGORIA_PANTALLAS)
+        .eq('id_categoria', categoriaPantallas)
 
       let dataQuery = supabase
         .from('repuestos')
@@ -138,7 +154,7 @@ export function Pantallas({ refreshSignal }: PantallasProps) {
           categorias!inner ( id_categoria, nombre ),
           distribuidores!inner ( id_distribuidor, nombre )
         `)
-        .eq('id_categoria', CATEGORIA_PANTALLAS)
+        .eq('id_categoria', categoriaPantallas)
 
       if (soloConBisel) {
         countQuery = countQuery.contains('atributos', { con_bisel: true })
@@ -198,7 +214,7 @@ export function Pantallas({ refreshSignal }: PantallasProps) {
     }
 
     fetchData()
-  }, [loading, session, currentPage, buscar, soloConBisel, filtroStock, refreshKey, refreshSignal])
+  }, [loading, session, currentPage, buscar, soloConBisel, filtroStock, refreshKey, refreshSignal, categoriaPantallas])
 
   return (
     <section>
@@ -506,18 +522,21 @@ function ModalPantalla({ isAdmin, editando, onClose, onSuccess }: ModalProps) {
   const [marcas, setMarcas] = useState<Marca[]>([])
   const [modelos, setModelos] = useState<Modelo[]>([])
   const [distribuidores, setDistribuidorList] = useState<Distribuidor[]>([])
+  const [categoriaPantallas, setCategoriaPantallas] = useState<number | null>(null)
 
   const [cargandoCatalogos, setCargandoCatalogos] = useState(true)
 
   /* ───── Carga inicial ───── */
   useEffect(() => {
     const cargar = async () => {
-      const [{ data: mars }, { data: dists }] = await Promise.all([
+      const [{ data: mars }, { data: dists }, { data: cat }] = await Promise.all([
         supabase.from('marcas').select('*').order('nombre'),
         supabase.from('distribuidores').select('*').order('nombre'),
+        supabase.from('categorias').select('id_categoria').ilike('nombre', 'Pantallas').maybeSingle(),
       ])
       if (mars) setMarcas(mars as Marca[])
       if (dists) setDistribuidorList(dists as Distribuidor[])
+      setCategoriaPantallas(cat?.id_categoria ?? null)
       setCargandoCatalogos(false)
     }
     cargar()
@@ -657,8 +676,14 @@ function ModalPantalla({ isAdmin, editando, onClose, onSuccess }: ModalProps) {
     }
 
     /* ── Insertar nuevo ── */
+    if (!categoriaPantallas) {
+      setError('No se encontró la categoría "Pantallas" en el catálogo.')
+      setEnviando(false)
+      return
+    }
+
     const payload = {
-      id_categoria: CATEGORIA_PANTALLAS,
+      id_categoria: categoriaPantallas,
       id_distribuidor: form.id_distribuidor === '' ? null : Number(form.id_distribuidor),
       id_modelo_principal: Number(form.id_modelo_principal),
       stock,
@@ -686,7 +711,7 @@ function ModalPantalla({ isAdmin, editando, onClose, onSuccess }: ModalProps) {
     const { data: candidatos, error: candErr } = await supabase
       .from('repuestos')
       .select('id_repuesto, atributos')
-      .eq('id_categoria', CATEGORIA_PANTALLAS)
+      .eq('id_categoria', categoriaPantallas)
       .eq('id_distribuidor', payload.id_distribuidor)
       .eq('id_modelo_principal', payload.id_modelo_principal)
 
