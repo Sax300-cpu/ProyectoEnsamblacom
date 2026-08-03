@@ -141,6 +141,21 @@ export function Garantias() {
     return formatearDetalles(distribuidor, fila.repuestos.atributos ?? {})
   }
 
+  const eliminarGarantiaHistorial = async (id: number) => {
+    const { error } = await supabase
+      .from('cuarentena_defectuosos')
+      .delete()
+      .eq('id_cuarentena', id)
+
+    if (error) {
+      toast.error('Error al eliminar: ' + error.message)
+      return
+    }
+
+    setFilas((prev) => prev.filter((f) => f.id_cuarentena !== id))
+    toast.success('Registro eliminado del historial')
+  }
+
   return (
     <section>
       <h2 className="text-2xl font-semibold text-slate-800 mb-4">🛡️ Garantías / Cuarentena</h2>
@@ -211,6 +226,9 @@ export function Garantias() {
                 <th className="text-left px-4 py-3 font-semibold">Origen</th>
                 <th className="text-left px-4 py-3 font-semibold">Falla</th>
                 <th className="text-center px-4 py-3 font-semibold">Estado</th>
+                {vistaActual === 'Historial' && (
+                  <th className="text-center px-4 py-3 font-semibold">Eliminar</th>
+                )}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200">
@@ -246,18 +264,39 @@ export function Garantias() {
                     {fila.descripcion_falla || '—'}
                   </td>
                   <td className="px-4 py-3 text-center">
-                    <select
-                      value={fila.estado_revision}
-                      onChange={(e) => cambiarEstado(fila, e.target.value)}
-                      className={`rounded-lg border border-slate-300 px-2 py-1 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-amber-500 ${
-                        badgeEstado[fila.estado_revision] ?? 'bg-slate-100 text-slate-600'
-                      }`}
-                    >
-                      {ESTADOS_REVISION.map((estado) => (
-                        <option key={estado} value={estado}>{estado}</option>
-                      ))}
-                    </select>
+                    {vistaActual === 'Historial' ? (
+                      <span
+                        className={`inline-block rounded-full px-2.5 py-1 text-xs font-semibold ${
+                          badgeEstado[fila.estado_revision] ?? 'bg-slate-100 text-slate-600'
+                        }`}
+                      >
+                        {fila.estado_revision}
+                      </span>
+                    ) : (
+                      <select
+                        value={fila.estado_revision}
+                        onChange={(e) => cambiarEstado(fila, e.target.value)}
+                        className={`rounded-lg border border-slate-300 px-2 py-1 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-amber-500 ${
+                          badgeEstado[fila.estado_revision] ?? 'bg-slate-100 text-slate-600'
+                        }`}
+                      >
+                        {ESTADOS_REVISION.map((estado) => (
+                          <option key={estado} value={estado}>{estado}</option>
+                        ))}
+                      </select>
+                    )}
                   </td>
+                  {vistaActual === 'Historial' && (
+                    <td className="px-4 py-3 text-center">
+                      <button
+                        onClick={() => eliminarGarantiaHistorial(fila.id_cuarentena)}
+                        title="Eliminar registro"
+                        className="rounded-lg px-2 py-1 text-xs font-semibold text-red-600 hover:bg-red-50 hover:text-red-800 transition-colors cursor-pointer"
+                      >
+                        🗑️ Eliminar
+                      </button>
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
