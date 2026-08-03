@@ -24,6 +24,7 @@ interface CuarentenaRow {
     stock: number
     atributos: Record<string, unknown>
     modelos: { id_modelo: number; nombre: string; marcas: { id_marca: number; nombre: string } } | null
+    categorias: { id_categoria: number; nombre: string }
     distribuidores: { id_distribuidor: number; nombre: string }
   } | null
   ventas: { alias_tecnico: string | null } | null
@@ -67,6 +68,7 @@ export function Garantias() {
             nombre,
             marcas ( id_marca, nombre )
           ),
+          categorias!inner ( id_categoria, nombre ),
           distribuidores!inner ( id_distribuidor, nombre )
         ),
         ventas ( alias_tecnico )
@@ -89,37 +91,44 @@ export function Garantias() {
   const cambiarEstado = async (fila: CuarentenaRow, nuevoEstado: string) => {
     if (nuevoEstado === fila.estado_revision) return
 
-    if (nuevoEstado === 'Reemplazado') {
-      const stockActual = fila.repuestos?.stock ?? 0
-      const { error: errStock } = await supabase
-        .from('repuestos')
-        .update({ stock: stockActual + fila.cantidad })
-        .eq('id_repuesto', fila.id_repuesto)
+    try {
+      if (nuevoEstado === 'Reemplazado') {
+        const stockActual = fila.repuestos?.stock ?? 0
+        const { data: repuestoActualizado, error: errStock } = await supabase
+          .from('repuestos')
+          .update({ stock: stockActual + fila.cantidad })
+          .eq('id_repuesto', fila.id_repuesto)
+          .select('id_repuesto')
 
-      if (errStock) {
-        toast.error('Error al reponer el stock: ' + errStock.message)
-        return
+        if (errStock) throw errStock
+        if (!repuestoActualizado || repuestoActualizado.length === 0) {
+          throw new Error('No se encontró el repuesto para reponer el stock')
+        }
       }
+
+      const { data: filaActualizada, error: err } = await supabase
+        .from('cuarentena_defectuosos')
+        .update({ estado_revision: nuevoEstado })
+        .eq('id_cuarentena', fila.id_cuarentena)
+        .select('id_cuarentena')
+
+      if (err) throw err
+      if (!filaActualizada || filaActualizada.length === 0) {
+        throw new Error('No se pudo actualizar el estado (¿política RLS de UPDATE?)')
+      }
+
+      setFilas((prev) =>
+        prev.map((f) => (f.id_cuarentena === fila.id_cuarentena ? { ...f, estado_revision: nuevoEstado } : f)),
+      )
+      toast.success(
+        nuevoEstado === 'Reemplazado'
+          ? 'Garantía cubierta: Stock devuelto al inventario'
+          : 'Estado actualizado',
+      )
+    } catch (error) {
+      console.error('Error detallado:', error)
+      toast.error('Error al actualizar el estado: ' + ((error as Error).message || JSON.stringify(error)))
     }
-
-    const { error: err } = await supabase
-      .from('cuarentena_defectuosos')
-      .update({ estado_revision: nuevoEstado })
-      .eq('id_cuarentena', fila.id_cuarentena)
-
-    if (err) {
-      toast.error('Error al actualizar el estado: ' + err.message)
-      return
-    }
-
-    setFilas((prev) =>
-      prev.map((f) => (f.id_cuarentena === fila.id_cuarentena ? { ...f, estado_revision: nuevoEstado } : f)),
-    )
-    toast.success(
-      nuevoEstado === 'Reemplazado'
-        ? 'Garantía cubierta: Stock devuelto al inventario'
-        : 'Estado actualizado',
-    )
   }
 
   const textoOrigen = (fila: CuarentenaRow) => {
@@ -129,14 +138,29 @@ export function Garantias() {
 
   const nombreProducto = (fila: CuarentenaRow) => {
     const modelo = fila.repuestos?.modelos?.nombre ?? '—'
-    const marca = fila.repuestos?.modelos?.marcas?.nombre ?? '—'
-    return `${marca} ${modelo}`.trim()
+    const categoria = fila.repuestos?.categorias?.nombre ?? '—'
+    return `${categoria} · ${modelo}`
   }
 
   const detallesProducto = (fila: CuarentenaRow) => {
     if (!fila.repuestos) return ''
     const distribuidor = fila.repuestos.distribuidores?.nombre ?? ''
     return formatearDetalles(distribuidor, fila.repuestos.atributos ?? {})
+  }
+
+  const eliminarGarantiaHistorial = async (id: number) => {
+    const { error } = await supabase
+      .from('cuarentena_defectuosos')
+      .delete()
+      .eq('id_cuarentena', id)
+
+    if (error) {
+      toast.error('Error al eliminar: ' + error.message)
+      return
+    }
+
+    setFilas((prev) => prev.filter((f) => f.id_cuarentena !== id))
+    toast.success('Registro eliminado del historial')
   }
 
   return (
@@ -209,6 +233,9 @@ export function Garantias() {
                 <th className="text-left px-4 py-3 font-semibold">Origen</th>
                 <th className="text-left px-4 py-3 font-semibold">Falla</th>
                 <th className="text-center px-4 py-3 font-semibold">Estado</th>
+                {vistaActual === 'Historial' && (
+                  <th className="text-center px-4 py-3 font-semibold">Eliminar</th>
+                )}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200">
@@ -244,18 +271,39 @@ export function Garantias() {
                     {fila.descripcion_falla || '—'}
                   </td>
                   <td className="px-4 py-3 text-center">
-                    <select
-                      value={fila.estado_revision}
-                      onChange={(e) => cambiarEstado(fila, e.target.value)}
-                      className={`rounded-lg border border-slate-300 px-2 py-1 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-amber-500 ${
-                        badgeEstado[fila.estado_revision] ?? 'bg-slate-100 text-slate-600'
-                      }`}
-                    >
-                      {ESTADOS_REVISION.map((estado) => (
-                        <option key={estado} value={estado}>{estado}</option>
-                      ))}
-                    </select>
+                    {vistaActual === 'Historial' ? (
+                      <span
+                        className={`inline-block rounded-full px-2.5 py-1 text-xs font-semibold ${
+                          badgeEstado[fila.estado_revision] ?? 'bg-slate-100 text-slate-600'
+                        }`}
+                      >
+                        {fila.estado_revision}
+                      </span>
+                    ) : (
+                      <select
+                        value={fila.estado_revision}
+                        onChange={(e) => cambiarEstado(fila, e.target.value)}
+                        className={`rounded-lg border border-slate-300 px-2 py-1 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-amber-500 ${
+                          badgeEstado[fila.estado_revision] ?? 'bg-slate-100 text-slate-600'
+                        }`}
+                      >
+                        {ESTADOS_REVISION.map((estado) => (
+                          <option key={estado} value={estado}>{estado}</option>
+                        ))}
+                      </select>
+                    )}
                   </td>
+                  {vistaActual === 'Historial' && (
+                    <td className="px-4 py-3 text-center">
+                      <button
+                        onClick={() => eliminarGarantiaHistorial(fila.id_cuarentena)}
+                        title="Eliminar registro"
+                        className="rounded-lg px-2 py-1 text-xs font-semibold text-red-600 hover:bg-red-50 hover:text-red-800 transition-colors cursor-pointer"
+                      >
+                        🗑️ Eliminar
+                      </button>
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>

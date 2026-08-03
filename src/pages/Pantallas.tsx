@@ -58,7 +58,7 @@ interface PantallasProps {
 }
 
 export function Pantallas({ refreshSignal }: PantallasProps) {
-  const { isAdmin } = useAuth()
+  const { isAdmin, session, loading } = useAuth()
 
   /* ── Estados de tabla ── */
   const [repuestos, setRepuestos] = useState<RepuestoConRelaciones[]>([])
@@ -112,6 +112,8 @@ export function Pantallas({ refreshSignal }: PantallasProps) {
   }, [buscar, soloConBisel, filtroStock])
 
   useEffect(() => {
+    if (loading || !session) return
+
     setCargando(true)
     setError(null)
 
@@ -196,7 +198,7 @@ export function Pantallas({ refreshSignal }: PantallasProps) {
     }
 
     fetchData()
-  }, [currentPage, buscar, soloConBisel, filtroStock, refreshKey, refreshSignal])
+  }, [loading, session, currentPage, buscar, soloConBisel, filtroStock, refreshKey, refreshSignal])
 
   return (
     <section>

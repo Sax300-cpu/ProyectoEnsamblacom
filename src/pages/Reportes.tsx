@@ -333,8 +333,10 @@ export function Reportes() {
             />
           </label>
           <button
-            onClick={() => generarReportePeriodoPDF(ventas, fechaInicio, fechaFin)}
-            disabled={ventas.length === 0}
+            onClick={() =>
+              generarReportePeriodoPDF(transaccionesDelPeriodo, fechaInicio, fechaFin)
+            }
+            disabled={transaccionesDelPeriodo.length === 0}
             className="flex items-center gap-2 rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-50 transition-colors cursor-pointer"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
