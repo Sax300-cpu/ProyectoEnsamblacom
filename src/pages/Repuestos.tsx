@@ -493,7 +493,7 @@ function ModalRepuesto({ isAdmin, editando, onClose, onSuccess }: ModalProps) {
         .filter((id) => id !== editando.id_modelo_principal)
       return {
         id_categoria: editando.id_categoria,
-        id_marca: idMarca === '' ? '' : Number(idMarca),
+        id_marca: String(idMarca) === '' ? '' : Number(idMarca),
         id_modelo_principal: editando.id_modelo_principal,
         ids_compatibles: idsCompatibles,
         id_distribuidor: editando.id_distribuidor ?? '',

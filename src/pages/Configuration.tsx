@@ -45,7 +45,7 @@ function useCatalog<T extends object>(
 
   const handleSubmit = async () => {
     if (!editando) {
-      const nombreNuevo = ((form.nombre as string) ?? '').trim().toLowerCase()
+      const nombreNuevo = (((form as { nombre?: string }).nombre) ?? '').trim().toLowerCase()
       const existe = items.some(
         (i) => ((i as { nombre?: string }).nombre ?? '').trim().toLowerCase() === nombreNuevo,
       )

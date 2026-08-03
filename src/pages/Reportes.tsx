@@ -206,7 +206,7 @@ export function Reportes() {
         tx.push({
           id: `d-${v.id_venta}-${det.id_detalle}`,
           fechaISO: det.fecha_pago_item!,
-          fechaCobroISO: det.fecha_pago_item,
+          fechaCobroISO: det.fecha_pago_item ?? null,
           categoria: det.repuestos.categorias?.nombre ?? '—',
           marca: det.repuestos.modelos?.marcas?.nombre ?? '—',
           modelo: det.repuestos.modelos?.nombre ?? '—',

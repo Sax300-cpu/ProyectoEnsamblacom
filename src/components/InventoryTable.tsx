@@ -267,6 +267,7 @@ export function InventoryTable({ seccion, buscar, refreshKey: stockRefreshKey = 
                             tipo_precio: 'tecnico',
                             descripcion: `${marcaNombre} ${modeloNombre}`,
                             categoria: r.categorias.nombre,
+                            marca_nombre: marcaNombre,
                             modelo_nombre: modeloNombre,
                             stock_disponible: r.stock,
                             distribuidor: r.distribuidores.nombre,
