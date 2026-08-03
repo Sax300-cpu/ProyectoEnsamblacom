@@ -91,37 +91,44 @@ export function Garantias() {
   const cambiarEstado = async (fila: CuarentenaRow, nuevoEstado: string) => {
     if (nuevoEstado === fila.estado_revision) return
 
-    if (nuevoEstado === 'Reemplazado') {
-      const stockActual = fila.repuestos?.stock ?? 0
-      const { error: errStock } = await supabase
-        .from('repuestos')
-        .update({ stock: stockActual + fila.cantidad })
-        .eq('id_repuesto', fila.id_repuesto)
+    try {
+      if (nuevoEstado === 'Reemplazado') {
+        const stockActual = fila.repuestos?.stock ?? 0
+        const { data: repuestoActualizado, error: errStock } = await supabase
+          .from('repuestos')
+          .update({ stock: stockActual + fila.cantidad })
+          .eq('id_repuesto', fila.id_repuesto)
+          .select('id_repuesto')
 
-      if (errStock) {
-        toast.error('Error al reponer el stock: ' + errStock.message)
-        return
+        if (errStock) throw errStock
+        if (!repuestoActualizado || repuestoActualizado.length === 0) {
+          throw new Error('No se encontró el repuesto para reponer el stock')
+        }
       }
+
+      const { data: filaActualizada, error: err } = await supabase
+        .from('cuarentena_defectuosos')
+        .update({ estado_revision: nuevoEstado })
+        .eq('id_cuarentena', fila.id_cuarentena)
+        .select('id_cuarentena')
+
+      if (err) throw err
+      if (!filaActualizada || filaActualizada.length === 0) {
+        throw new Error('No se pudo actualizar el estado (¿política RLS de UPDATE?)')
+      }
+
+      setFilas((prev) =>
+        prev.map((f) => (f.id_cuarentena === fila.id_cuarentena ? { ...f, estado_revision: nuevoEstado } : f)),
+      )
+      toast.success(
+        nuevoEstado === 'Reemplazado'
+          ? 'Garantía cubierta: Stock devuelto al inventario'
+          : 'Estado actualizado',
+      )
+    } catch (error) {
+      console.error('Error detallado:', error)
+      toast.error('Error al actualizar el estado: ' + ((error as Error).message || JSON.stringify(error)))
     }
-
-    const { error: err } = await supabase
-      .from('cuarentena_defectuosos')
-      .update({ estado_revision: nuevoEstado })
-      .eq('id_cuarentena', fila.id_cuarentena)
-
-    if (err) {
-      toast.error('Error al actualizar el estado: ' + err.message)
-      return
-    }
-
-    setFilas((prev) =>
-      prev.map((f) => (f.id_cuarentena === fila.id_cuarentena ? { ...f, estado_revision: nuevoEstado } : f)),
-    )
-    toast.success(
-      nuevoEstado === 'Reemplazado'
-        ? 'Garantía cubierta: Stock devuelto al inventario'
-        : 'Estado actualizado',
-    )
   }
 
   const textoOrigen = (fila: CuarentenaRow) => {

@@ -18,6 +18,10 @@ export function Pedidos() {
   const [error, setError] = useState<string | null>(null)
   const [nuevoTexto, setNuevoTexto] = useState('')
   const [agregando, setAgregando] = useState(false)
+  const [pedidoAEliminar, setPedidoAEliminar] = useState<Pedido | null>(null)
+  const [eliminando, setEliminando] = useState(false)
+  const [confirmandoLimpiar, setConfirmandoLimpiar] = useState(false)
+  const [limpiando, setLimpiando] = useState(false)
 
   const cargarPedidos = async () => {
     setCargando(true)
@@ -73,12 +77,14 @@ export function Pedidos() {
   }
 
   const handleLimpiarCompletados = async () => {
-    if (!confirm('¿Eliminar todos los pedidos con estado "Comprado"?')) return
+    setLimpiando(true)
     const { error: err } = await supabase
       .from('pedidos_pendientes')
       .delete()
       .eq('estado', 'Comprado')
 
+    setLimpiando(false)
+    setConfirmandoLimpiar(false)
     if (err) {
       alert('Error al limpiar: ' + err.message)
       return
@@ -86,18 +92,21 @@ export function Pedidos() {
     setPedidos((prev) => prev.filter((p) => p.estado !== 'Comprado'))
   }
 
-  const handleEliminar = async (id_pedido: string) => {
-    if (!confirm('¿Eliminar este pedido pendiente?')) return
+  const handleEliminar = async () => {
+    if (!pedidoAEliminar) return
+    setEliminando(true)
     const { error: err } = await supabase
       .from('pedidos_pendientes')
       .delete()
-      .eq('id_pedido', id_pedido)
+      .eq('id_pedido', pedidoAEliminar.id_pedido)
 
+    setEliminando(false)
+    setPedidoAEliminar(null)
     if (err) {
       alert('Error al eliminar: ' + err.message)
       return
     }
-    setPedidos((prev) => prev.filter((p) => p.id_pedido !== id_pedido))
+    setPedidos((prev) => prev.filter((p) => p.id_pedido !== pedidoAEliminar.id_pedido))
   }
 
   return (
@@ -122,7 +131,7 @@ export function Pedidos() {
         </button>
         {isAdmin && (
           <button
-            onClick={handleLimpiarCompletados}
+            onClick={() => setConfirmandoLimpiar(true)}
             className="rounded-lg bg-red-100 text-red-700 border border-red-300 px-4 py-2 text-sm font-semibold hover:bg-red-200 transition-colors shrink-0 cursor-pointer"
           >
             Limpiar Completados
@@ -206,7 +215,7 @@ export function Pedidos() {
                   {isAdmin && (
                     <td className="px-4 py-3 text-center">
                       <button
-                        onClick={() => handleEliminar(p.id_pedido)}
+                        onClick={() => setPedidoAEliminar(p)}
                         className="text-red-500 hover:text-red-700 hover:bg-red-50 px-2 py-1 rounded-md text-xs font-semibold transition-colors cursor-pointer"
                         title="Eliminar"
                       >
@@ -218,6 +227,59 @@ export function Pedidos() {
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {pedidoAEliminar && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center px-4">
+          <div className="bg-white rounded-lg shadow-xl p-6 max-w-sm w-full">
+            <h3 className="text-lg font-semibold text-slate-800">¿Eliminar pedido?</h3>
+            <p className="text-sm text-slate-500 mt-2">
+              Esta acción no se puede deshacer. El pedido "{pedidoAEliminar.repuesto_texto}" será eliminado permanentemente.
+            </p>
+            <div className="flex justify-end gap-3 mt-6">
+              <button
+                onClick={() => setPedidoAEliminar(null)}
+                disabled={eliminando}
+                className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleEliminar}
+                disabled={eliminando}
+                className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50 transition-colors cursor-pointer"
+              >
+                {eliminando ? 'Eliminando…' : 'Eliminar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {confirmandoLimpiar && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center px-4">
+          <div className="bg-white rounded-lg shadow-xl p-6 max-w-sm w-full">
+            <h3 className="text-lg font-semibold text-slate-800">¿Limpiar completados?</h3>
+            <p className="text-sm text-slate-500 mt-2">
+              Esta acción no se puede deshacer. Se eliminarán todos los pedidos con estado "Comprado".
+            </p>
+            <div className="flex justify-end gap-3 mt-6">
+              <button
+                onClick={() => setConfirmandoLimpiar(false)}
+                disabled={limpiando}
+                className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleLimpiarCompletados}
+                disabled={limpiando}
+                className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50 transition-colors cursor-pointer"
+              >
+                {limpiando ? 'Limpiando…' : 'Limpiar'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </section>
