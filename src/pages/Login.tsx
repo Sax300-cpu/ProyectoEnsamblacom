@@ -1,6 +1,9 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
+
+const EMAIL_KEY = 'ensamblacom_email'
+const PASSWORD_KEY = 'ensamblacom_password'
 
 export function Login() {
   const navigate = useNavigate()
@@ -10,6 +13,16 @@ export function Login() {
   const [recordarme, setRecordarme] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [enviando, setEnviando] = useState(false)
+
+  useEffect(() => {
+    const guardado = localStorage.getItem(EMAIL_KEY)
+    const claveGuardada = localStorage.getItem(PASSWORD_KEY)
+    if (guardado && claveGuardada) {
+      setEmail(guardado)
+      setPassword(claveGuardada)
+      setRecordarme(true)
+    }
+  }, [])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -21,9 +34,18 @@ export function Login() {
     setEnviando(false)
     if (err) {
       setError('Credenciales incorrectas')
-    } else {
-      navigate('/')
+      return
     }
+
+    if (recordarme) {
+      localStorage.setItem(EMAIL_KEY, email)
+      localStorage.setItem(PASSWORD_KEY, password)
+    } else {
+      localStorage.removeItem(EMAIL_KEY)
+      localStorage.removeItem(PASSWORD_KEY)
+    }
+
+    navigate('/')
   }
 
   return (

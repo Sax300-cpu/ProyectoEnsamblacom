@@ -350,10 +350,8 @@ export function Pantallas({ refreshSignal }: PantallasProps) {
                       <td className="px-4 py-3 text-right">
                         <span
                           className={`inline-block min-w-[2rem] rounded-full px-2 py-0.5 text-xs font-semibold ${
-                            r.stock <= 5
+                            r.stock <= 1
                               ? 'bg-red-100 text-red-700'
-                              : r.stock <= 15
-                              ? 'bg-amber-100 text-amber-700'
                               : 'bg-green-100 text-green-700'
                           }`}
                         >
@@ -1003,81 +1001,69 @@ function ModalPantalla({ isAdmin, editando, onClose, onSuccess }: ModalProps) {
             />
           </div>
 
+          {/* Costo Distribuidor */}
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Costo Distribuidor ($)</label>
+            <input
+              type="number"
+              name="costo_distribuidor"
+              min={0}
+              step="0.01"
+              value={form.costo_distribuidor}
+              onChange={handleChange}
+              required
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+
           {/* ─── Admin: Calculadora Inteligente ─── */}
-          {isAdmin ? (
-            <>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Costo Distribuidor ($)</label>
-                <input
-                  type="number"
-                  name="costo_distribuidor"
-                  min={0}
-                  step="0.01"
-                  value={form.costo_distribuidor}
-                  onChange={handleChange}
-                  required
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">% Margen</label>
-                <input
-                  type="number"
-                  min={0}
-                  step="0.5"
-                  value={margen}
-                  onChange={(e) => setMargen(Number(e.target.value))}
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Precio Técnico ($)</label>
-                <input
-                  type="number"
-                  name="precio_tecnico"
-                  min={0}
-                  step="0.01"
-                  value={form.precio_tecnico}
-                  onChange={handleChange}
-                  required
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Precio Cliente ($)</label>
-                <input
-                  type="number"
-                  name="precio_cliente"
-                  min={0}
-                  step="0.01"
-                  value={form.precio_cliente}
-                  onChange={handleChange}
-                  required
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-              <div className="sm:col-span-2 -mt-2">
-                {Number(form.costo_distribuidor) > 0 && (
-                  <p className="text-xs text-slate-500">
-                    Sugerencia: $ {Number(form.costo_distribuidor).toFixed(2)} + ({Number(form.costo_distribuidor).toFixed(2)} × {margen}%) = $ {precioCalculado.toFixed(2)}
-                  </p>
-                )}
-              </div>
-            </>
-          ) : (
-            /* ─── No Admin: solo Costo + Stock ─── */
+          {isAdmin && (
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Costo Distribuidor ($)</label>
+              <label className="block text-sm font-medium text-slate-700 mb-1">% Margen</label>
               <input
                 type="number"
-                name="costo_distribuidor"
                 min={0}
-                step="0.01"
-                value={form.costo_distribuidor}
-                onChange={handleChange}
-                required
+                step="0.5"
+                value={margen}
+                onChange={(e) => setMargen(Number(e.target.value))}
                 className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
+            </div>
+          )}
+
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Precio Técnico ($)</label>
+            <input
+              type="number"
+              name="precio_tecnico"
+              min={0}
+              step="0.01"
+              value={form.precio_tecnico}
+              onChange={handleChange}
+              required
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Precio Cliente ($)</label>
+            <input
+              type="number"
+              name="precio_cliente"
+              min={0}
+              step="0.01"
+              value={form.precio_cliente}
+              onChange={handleChange}
+              required
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          {isAdmin && (
+            <div className="sm:col-span-2 -mt-2">
+              {Number(form.costo_distribuidor) > 0 && (
+                <p className="text-xs text-slate-500">
+                  Sugerencia: $ {Number(form.costo_distribuidor).toFixed(2)} + ({Number(form.costo_distribuidor).toFixed(2)} × {margen}%) = $ {precioCalculado.toFixed(2)}
+                </p>
+              )}
             </div>
           )}
 
