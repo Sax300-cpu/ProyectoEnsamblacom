@@ -108,18 +108,25 @@ export function Pantallas({ refreshSignal }: PantallasProps) {
     openCart()
   }
 
-  const eliminarRepuesto = async (r: RepuestoConRelaciones) => {
-    if (!window.confirm('¿Estás seguro de eliminar este repuesto del inventario? Esta acción no se puede deshacer.')) return
+  const [modalEliminarOpen, setModalEliminarOpen] = useState(false)
+  const [itemAEliminar, setItemAEliminar] = useState<number | null>(null)
+
+  const eliminarRepuesto = async () => {
+    if (itemAEliminar === null) return
     const { error: err } = await supabase
       .from('repuestos')
       .delete()
-      .eq('id_repuesto', r.id_repuesto)
+      .eq('id_repuesto', itemAEliminar)
 
     if (err) {
       toast.error('Error al eliminar: ' + err.message)
+      setModalEliminarOpen(false)
+      setItemAEliminar(null)
       return
     }
-    setRepuestos((prev) => prev.filter((p) => p.id_repuesto !== r.id_repuesto))
+    setRepuestos((prev) => prev.filter((p) => p.id_repuesto !== itemAEliminar))
+    setModalEliminarOpen(false)
+    setItemAEliminar(null)
     toast.success('Repuesto eliminado del inventario')
   }
 
@@ -465,7 +472,7 @@ export function Pantallas({ refreshSignal }: PantallasProps) {
                           </button>
                           {isAdmin && (
                             <button
-                              onClick={() => eliminarRepuesto(r)}
+                              onClick={() => { setItemAEliminar(r.id_repuesto); setModalEliminarOpen(true) }}
                               title="Eliminar repuesto"
                               className="rounded-md bg-red-500 px-2.5 py-1 text-xs font-semibold text-white hover:bg-red-600 transition-colors cursor-pointer"
                             >
@@ -542,6 +549,34 @@ export function Pantallas({ refreshSignal }: PantallasProps) {
             setRefreshKey((k) => k + 1)
           }}
         />
+      )}
+
+      {/* ───── Modal Confirmar Eliminación ───── */}
+      {modalEliminarOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="w-full max-w-sm rounded-xl bg-white p-6 shadow-xl">
+            <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+              ⚠️ ¿Eliminar artículo?
+            </h3>
+            <p className="mt-2 text-sm text-slate-500">
+              Esta acción no se puede deshacer y el repuesto se borrará permanentemente de este inventario.
+            </p>
+            <div className="mt-6 flex items-center justify-end gap-2">
+              <button
+                onClick={() => { setModalEliminarOpen(false); setItemAEliminar(null) }}
+                className="rounded-md bg-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-300 transition-colors cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={eliminarRepuesto}
+                className="rounded-md bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 transition-colors cursor-pointer"
+              >
+                Sí, eliminar
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </section>
   )
