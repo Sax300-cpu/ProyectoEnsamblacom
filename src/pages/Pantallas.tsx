@@ -666,9 +666,11 @@ function ModalPantalla({ isAdmin, editando, onClose, onSuccess }: ModalProps) {
 
   /* ─── Calculadora Inteligente ─── */
   const precioCalculado = (() => {
-    const costo = Number(form.costo_distribuidor)
-    if (!costo || costo <= 0) return 0
-    return costo + costo * (margen / 100)
+    const costo = Number(form.costo_distribuidor) || 0
+    const margenDecimal = Number(margen) / 100
+    return margenDecimal < 1 && margenDecimal >= 0
+      ? costo / (1 - margenDecimal)
+      : 0
   })()
 
   /* ───── Handlers ───── */
@@ -1164,12 +1166,19 @@ function ModalPantalla({ isAdmin, editando, onClose, onSuccess }: ModalProps) {
             />
           </div>
           {isAdmin && (
-            <div className="sm:col-span-2 -mt-2">
-              {Number(form.costo_distribuidor) > 0 && (
-                <p className="text-xs text-slate-500">
-                  Sugerencia: $ {Number(form.costo_distribuidor).toFixed(2)} + ({Number(form.costo_distribuidor).toFixed(2)} × {margen}%) = $ {precioCalculado.toFixed(2)}
-                </p>
-              )}
+            <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 flex flex-col justify-center gap-1">
+              <p className="flex items-baseline justify-between gap-2 text-sm">
+                <span className="text-slate-500">Precio Sugerido:</span>
+                <span className="font-semibold text-slate-800">
+                  $ {(Number(form.costo_distribuidor) > 0 ? precioCalculado : 0).toFixed(2)}
+                </span>
+              </p>
+              <p className="flex items-baseline justify-between gap-2 text-sm">
+                <span className="text-slate-500">Ganancia Neta:</span>
+                <span className="font-semibold text-slate-800">
+                  $ {(Number(form.costo_distribuidor) > 0 ? precioCalculado - Number(form.costo_distribuidor) : 0).toFixed(2)}
+                </span>
+              </p>
             </div>
           )}
 
