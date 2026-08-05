@@ -124,10 +124,13 @@ function BuscarInput({ valor, onChange, placeholder }: { valor: string; onChange
   )
 }
 
-const filtrarPorNombre = <T extends { nombre?: unknown }>(items: T[], termino: string) => {
-  const t = termino.trim().toLowerCase()
-  if (!t) return items
-  return items.filter((i) => String(i.nombre ?? '').toLowerCase().includes(t))
+const filtrarPorPalabras = <T,>(items: T[], termino: string, obtenerTexto: (item: T) => string): T[] => {
+  const palabras = termino.trim().toLowerCase().split(' ').filter(Boolean)
+  if (!palabras.length) return items
+  return items.filter((item) => {
+    const texto = obtenerTexto(item).toLowerCase()
+    return palabras.every((p) => texto.includes(p))
+  })
 }
 
 /* ───── Categorías ───── */
@@ -143,7 +146,7 @@ function TabCategorias() {
   )
 
   const [buscar, setBuscar] = useState('')
-  const filtradas = filtrarPorNombre(items, buscar)
+  const filtradas = filtrarPorPalabras(items, buscar, (i) => String(i.nombre ?? ''))
 
   return (
     <div>
@@ -218,7 +221,7 @@ function TabMarcas() {
   )
 
   const [buscar, setBuscar] = useState('')
-  const filtradas = filtrarPorNombre(items, buscar)
+  const filtradas = filtrarPorPalabras(items, buscar, (i) => String(i.nombre ?? ''))
 
   return (
     <div>
@@ -301,12 +304,51 @@ function TabModelos() {
     const from = (page - 1) * MODEL_PAGE_SIZE
     const to = from + MODEL_PAGE_SIZE - 1
 
-    const t = termino.trim()
-    const query = t
-      ? supabase.from('modelos').select('*, marcas(*)', { count: 'exact' }).ilike('nombre', `%${t}%`)
-      : supabase.from('modelos').select('*, marcas(*)', { count: 'exact' })
+    let modelosQuery = supabase.from('modelos').select('*, marcas(*)', { count: 'exact' })
 
-    const { count, data } = await query.order('nombre').range(from, to)
+    const palabras = termino.trim().toLowerCase().split(' ').filter(Boolean)
+    if (palabras.length) {
+      let idsIntersectados: number[] | null = null
+
+      for (const palabra of palabras) {
+        const term = `%${palabra}%`
+        const [modRes, marcaRes] = await Promise.all([
+          supabase.from('modelos').select('id_modelo').ilike('nombre', term),
+          supabase.from('marcas').select('id_marca').ilike('nombre', term),
+        ])
+        const idsPalabra = new Set<number>(modRes.data?.map((m) => m.id_modelo) ?? [])
+
+        const marcaIds = marcaRes.data?.map((m) => m.id_marca) ?? []
+        if (marcaIds.length) {
+          const modelosDeMarca = await supabase
+            .from('modelos')
+            .select('id_modelo')
+            .in('id_marca', marcaIds)
+          modelosDeMarca.data?.forEach((m) => idsPalabra.add(m.id_modelo))
+        }
+
+        const idsArray = [...idsPalabra]
+        if (idsIntersectados === null) {
+          idsIntersectados = idsArray
+        } else {
+          const set = new Set(idsArray)
+          idsIntersectados = idsIntersectados.filter((id) => set.has(id))
+        }
+
+        if (idsIntersectados.length === 0) break
+      }
+
+      if (idsIntersectados === null || idsIntersectados.length === 0) {
+        setItems([])
+        setModelTotalItems(0)
+        setCargando(false)
+        return
+      }
+
+      modelosQuery = modelosQuery.in('id_modelo', idsIntersectados)
+    }
+
+    const { count, data } = await modelosQuery.order('nombre').range(from, to)
 
     if (data) setItems(data as Modelo[])
     setModelTotalItems(count ?? 0)
@@ -507,13 +549,9 @@ function TabDistribuidores() {
   )
 
   const [buscar, setBuscar] = useState('')
-  const t = buscar.trim().toLowerCase()
-  const filtradas = t
-    ? items.filter((i) =>
-        String(i.nombre ?? '').toLowerCase().includes(t) ||
-        String(i.contacto ?? '').toLowerCase().includes(t),
-      )
-    : items
+  const filtradas = filtrarPorPalabras(items, buscar, (i) =>
+    [String(i.nombre ?? ''), String(i.contacto ?? '')].join(' '),
+  )
 
   return (
     <div>
