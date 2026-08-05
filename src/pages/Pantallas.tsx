@@ -185,51 +185,75 @@ export function Pantallas({ refreshSignal }: PantallasProps) {
       }
 
       if (buscar) {
-        const term = `%${buscar.toLowerCase()}%`
-        const [catRes, modRes, marcaRes] = await Promise.all([
-          supabase.from('categorias').select('id_categoria').ilike('nombre', term),
-          supabase.from('modelos').select('id_modelo').ilike('nombre', term),
-          supabase.from('marcas').select('id_marca').ilike('nombre', term),
-        ])
-        const catIds = catRes.data?.map((c) => c.id_categoria) ?? []
-        const modIds = modRes.data?.map((m) => m.id_modelo) ?? []
+        const palabras = buscar.toLowerCase().split(' ').filter(Boolean)
 
-        let marcaModIds: number[] = []
-        const marcaIds = marcaRes.data?.map((m) => m.id_marca) ?? []
-        if (marcaIds.length) {
-          const modsMarca = await supabase
-            .from('modelos')
-            .select('id_modelo')
-            .in('id_marca', marcaIds)
-          marcaModIds = modsMarca.data?.map((m) => m.id_modelo) ?? []
+        const resolverPalabra = async (palabra: string): Promise<number[]> => {
+          const term = `%${palabra}%`
+          const [catRes, modRes, marcaRes] = await Promise.all([
+            supabase.from('categorias').select('id_categoria').ilike('nombre', term),
+            supabase.from('modelos').select('id_modelo').ilike('nombre', term),
+            supabase.from('marcas').select('id_marca').ilike('nombre', term),
+          ])
+          const catIds = catRes.data?.map((c) => c.id_categoria) ?? []
+          const modIds = modRes.data?.map((m) => m.id_modelo) ?? []
+
+          let marcaModIds: number[] = []
+          const marcaIds = marcaRes.data?.map((m) => m.id_marca) ?? []
+          if (marcaIds.length) {
+            const modsMarca = await supabase
+              .from('modelos')
+              .select('id_modelo')
+              .in('id_marca', marcaIds)
+            marcaModIds = modsMarca.data?.map((m) => m.id_modelo) ?? []
+          }
+
+          const todosModeloIds = [...new Set([...modIds, ...marcaModIds])]
+
+          const ids = new Set<number>()
+
+          if (catIds.length) {
+            const r = await supabase
+              .from('repuestos')
+              .select('id_repuesto')
+              .in('id_categoria', catIds)
+            r.data?.forEach((x) => ids.add(x.id_repuesto))
+          }
+
+          if (todosModeloIds.length) {
+            const r = await supabase
+              .from('repuestos')
+              .select('id_repuesto')
+              .in('id_modelo_principal', todosModeloIds)
+            r.data?.forEach((x) => ids.add(x.id_repuesto))
+
+            const compat = await supabase
+              .from('repuestos_compatibilidad')
+              .select('id_repuesto')
+              .in('id_modelo', todosModeloIds)
+            compat.data?.forEach((x) => ids.add(x.id_repuesto))
+          }
+
+          return [...ids]
         }
 
-        const todosModeloIds = [...new Set([...modIds, ...marcaModIds])]
+        const porPalabra = await Promise.all(palabras.map(resolverPalabra))
 
-        let idsPorCompatibilidad: number[] = []
-        if (todosModeloIds.length) {
-          const compat = await supabase
-            .from('repuestos_compatibilidad')
-            .select('id_repuesto')
-            .in('id_modelo', todosModeloIds)
-          idsPorCompatibilidad = compat.data?.map((c) => c.id_repuesto) ?? []
+        let idsIntersectados = porPalabra[0] ?? []
+        for (const ids of porPalabra.slice(1)) {
+          const set = new Set(ids)
+          idsIntersectados = idsIntersectados.filter((id) => set.has(id))
         }
+        idsIntersectados = [...new Set(idsIntersectados)]
 
-        const orParts: string[] = []
-        if (catIds.length) orParts.push(`id_categoria.in.(${catIds.join(',')})`)
-        if (todosModeloIds.length) orParts.push(`id_modelo_principal.in.(${todosModeloIds.join(',')})`)
-        if (idsPorCompatibilidad.length) orParts.push(`id_repuesto.in.(${idsPorCompatibilidad.join(',')})`)
-
-        if (orParts.length === 0) {
+        if (idsIntersectados.length === 0) {
           setTotalCount(0)
           setRepuestos([])
           setCargando(false)
           return
         }
 
-        const orString = orParts.join(',')
-        countQuery = countQuery.or(orString)
-        dataQuery = dataQuery.or(orString)
+        countQuery = countQuery.in('id_repuesto', idsIntersectados)
+        dataQuery = dataQuery.in('id_repuesto', idsIntersectados)
       }
 
       const { count } = await countQuery
