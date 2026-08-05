@@ -115,6 +115,21 @@ export function Repuestos({ refreshSignal }: RepuestosProps) {
     openCart()
   }
 
+  const eliminarRepuesto = async (r: RepuestoConRelaciones) => {
+    if (!window.confirm('¿Estás seguro de eliminar este repuesto del inventario? Esta acción no se puede deshacer.')) return
+    const { error: err } = await supabase
+      .from('repuestos')
+      .delete()
+      .eq('id_repuesto', r.id_repuesto)
+
+    if (err) {
+      toast.error('Error al eliminar: ' + err.message)
+      return
+    }
+    setRepuestos((prev) => prev.filter((p) => p.id_repuesto !== r.id_repuesto))
+    toast.success('Repuesto eliminado del inventario')
+  }
+
   const [modalOpen, setModalOpen] = useState(false)
   const [editando, setEditando] = useState<RepuestoConRelaciones | null>(null)
   const [stockModalOpen, setStockModalOpen] = useState(false)
@@ -172,16 +187,39 @@ export function Repuestos({ refreshSignal }: RepuestosProps) {
 
       if (buscar) {
         const term = `%${buscar.toLowerCase()}%`
-        const [catRes, modRes] = await Promise.all([
+        const [catRes, modRes, marcaRes] = await Promise.all([
           supabase.from('categorias').select('id_categoria').ilike('nombre', term),
           supabase.from('modelos').select('id_modelo').ilike('nombre', term),
+          supabase.from('marcas').select('id_marca').ilike('nombre', term),
         ])
         const catIds = catRes.data?.map((c) => c.id_categoria) ?? []
         const modIds = modRes.data?.map((m) => m.id_modelo) ?? []
 
+        let marcaModIds: number[] = []
+        const marcaIds = marcaRes.data?.map((m) => m.id_marca) ?? []
+        if (marcaIds.length) {
+          const modsMarca = await supabase
+            .from('modelos')
+            .select('id_modelo')
+            .in('id_marca', marcaIds)
+          marcaModIds = modsMarca.data?.map((m) => m.id_modelo) ?? []
+        }
+
+        const todosModeloIds = [...new Set([...modIds, ...marcaModIds])]
+
+        let idsPorCompatibilidad: number[] = []
+        if (todosModeloIds.length) {
+          const compat = await supabase
+            .from('repuestos_compatibilidad')
+            .select('id_repuesto')
+            .in('id_modelo', todosModeloIds)
+          idsPorCompatibilidad = compat.data?.map((c) => c.id_repuesto) ?? []
+        }
+
         const orParts: string[] = []
         if (catIds.length) orParts.push(`id_categoria.in.(${catIds.join(',')})`)
-        if (modIds.length) orParts.push(`id_modelo_principal.in.(${modIds.join(',')})`)
+        if (todosModeloIds.length) orParts.push(`id_modelo_principal.in.(${todosModeloIds.join(',')})`)
+        if (idsPorCompatibilidad.length) orParts.push(`id_repuesto.in.(${idsPorCompatibilidad.join(',')})`)
 
         if (orParts.length === 0) {
           setTotalCount(0)
@@ -419,6 +457,15 @@ export function Repuestos({ refreshSignal }: RepuestosProps) {
                           >
                             ⚠️
                           </button>
+                          {isAdmin && (
+                            <button
+                              onClick={() => eliminarRepuesto(r)}
+                              title="Eliminar repuesto"
+                              className="rounded-md bg-red-500 px-2.5 py-1 text-xs font-semibold text-white hover:bg-red-600 transition-colors cursor-pointer"
+                            >
+                              🗑️
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>

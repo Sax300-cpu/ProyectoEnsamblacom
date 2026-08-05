@@ -16,7 +16,7 @@ interface CartDrawerProps {
 
 export function CartDrawer({ onVentaExitosa }: CartDrawerProps) {
   const {
-    items, isOpen, closeCart, removeFromCart, updateQuantity, updatePrecio,
+    items, isOpen, closeCart, removeFromCart, updateQuantity,
     total, clearCart, enviando, setEnviando, transactionSuccess,
   } = useCart()
   const [alias, setAlias] = useState('')
@@ -249,17 +249,9 @@ export function CartDrawer({ onVentaExitosa }: CartDrawerProps) {
                       +
                     </button>
 
-                    <select
-                      value={item.tipo_precio}
-                      onChange={(e) => {
-                        const tipo = e.target.value as 'tecnico' | 'cliente'
-                        updatePrecio(item.id_repuesto, item.precio, tipo)
-                      }}
-                      className="ml-auto text-xs border border-slate-300 rounded px-1 py-1 focus:outline-none"
-                    >
-                      <option value="tecnico">P. Técnico</option>
-                      <option value="cliente">P. Cliente</option>
-                    </select>
+                    <span className="ml-auto text-xs font-semibold text-slate-600">
+                      P. Técnico
+                    </span>
 
                     <span className="text-sm font-mono font-semibold text-slate-800 min-w-[5rem] text-right">
                       $ {(item.precio * item.cantidad).toFixed(2)}

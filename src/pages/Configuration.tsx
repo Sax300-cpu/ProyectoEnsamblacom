@@ -108,6 +108,28 @@ function useCatalog<T extends object>(
   }
 }
 
+/* ───── input de búsqueda local (sin consultas extra) ───── */
+function BuscarInput({ valor, onChange, placeholder }: { valor: string; onChange: (v: string) => void; placeholder: string }) {
+  return (
+    <div className="relative mb-6 max-w-md">
+      <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">🔍</span>
+      <input
+        type="text"
+        placeholder={placeholder}
+        value={valor}
+        onChange={(e) => onChange(e.target.value)}
+        className="w-full rounded-lg border border-slate-300 pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+      />
+    </div>
+  )
+}
+
+const filtrarPorNombre = <T extends { nombre?: unknown }>(items: T[], termino: string) => {
+  const t = termino.trim().toLowerCase()
+  if (!t) return items
+  return items.filter((i) => String(i.nombre ?? '').toLowerCase().includes(t))
+}
+
 /* ───── Categorías ───── */
 function TabCategorias() {
   const { items, form, setForm, editando, cargando, handleSubmit, handleEdit, handleDelete, resetForm, borrar, setBorrar, confirmarDelete, nombreBorrar } = useCatalog<Categoria>(
@@ -120,8 +142,12 @@ function TabCategorias() {
     (f) => ({ nombre: (f.nombre ?? '').trim() }),
   )
 
+  const [buscar, setBuscar] = useState('')
+  const filtradas = filtrarPorNombre(items, buscar)
+
   return (
     <div>
+      <BuscarInput valor={buscar} onChange={setBuscar} placeholder="Buscar categoría…" />
       <div className="flex gap-2 mb-4">
         <input
           type="text"
@@ -154,7 +180,7 @@ function TabCategorias() {
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-200">
-          {items.map((i) => (
+          {filtradas.map((i) => (
             <tr key={i.id_categoria} className="hover:bg-slate-50">
               <td className="px-3 py-2 text-slate-700">{i.nombre}</td>
               <td className="px-3 py-2 text-center">
@@ -191,8 +217,12 @@ function TabMarcas() {
     (f) => ({ nombre: (f.nombre ?? '').trim() }),
   )
 
+  const [buscar, setBuscar] = useState('')
+  const filtradas = filtrarPorNombre(items, buscar)
+
   return (
     <div>
+      <BuscarInput valor={buscar} onChange={setBuscar} placeholder="Buscar marca…" />
       <div className="flex gap-2 mb-4">
         <input
           type="text"
@@ -225,7 +255,7 @@ function TabMarcas() {
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-200">
-          {items.map((i) => (
+          {filtradas.map((i) => (
             <tr key={i.id_marca} className="hover:bg-slate-50">
               <td className="px-3 py-2 text-slate-700">{i.nombre}</td>
               <td className="px-3 py-2 text-center">
@@ -262,19 +292,21 @@ function TabModelos() {
   const [modelCurrentPage, setModelCurrentPage] = useState(1)
   const [modelTotalItems, setModelTotalItems] = useState(0)
   const [borrar, setBorrar] = useState<Modelo | null>(null)
+  const [buscar, setBuscar] = useState('')
 
   const modelTotalPages = Math.max(1, Math.ceil(modelTotalItems / MODEL_PAGE_SIZE))
 
-  const cargarModelos = async (page: number) => {
+  const cargarModelos = async (page: number, termino: string = buscar) => {
     setCargando(true)
     const from = (page - 1) * MODEL_PAGE_SIZE
     const to = from + MODEL_PAGE_SIZE - 1
 
-    const { count, data } = await supabase
-      .from('modelos')
-      .select('*, marcas(*)', { count: 'exact' })
-      .order('nombre')
-      .range(from, to)
+    const t = termino.trim()
+    const query = t
+      ? supabase.from('modelos').select('*, marcas(*)', { count: 'exact' }).ilike('nombre', `%${t}%`)
+      : supabase.from('modelos').select('*, marcas(*)', { count: 'exact' })
+
+    const { count, data } = await query.order('nombre').range(from, to)
 
     if (data) setItems(data as Modelo[])
     setModelTotalItems(count ?? 0)
@@ -288,12 +320,13 @@ function TabModelos() {
 
   useEffect(() => {
     cargarMarcas()
-    cargarModelos(1)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   useEffect(() => {
     cargarModelos(modelCurrentPage)
-  }, [modelCurrentPage])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [modelCurrentPage, buscar])
 
   const resetForm = () => {
     setForm({ id_marca: '' as unknown as number })
@@ -363,6 +396,14 @@ function TabModelos() {
 
   return (
     <div>
+      <BuscarInput
+        valor={buscar}
+        onChange={(v) => {
+          setBuscar(v)
+          setModelCurrentPage(1)
+        }}
+        placeholder="Buscar modelo…"
+      />
       <div className="flex gap-2 mb-4">
         <select
           value={(form.id_marca as number | undefined) ?? ''}
@@ -465,8 +506,18 @@ function TabDistribuidores() {
     (f) => ({ nombre: (f.nombre as string ?? '').trim(), contacto: (f.contacto as string ?? '').trim() || null }),
   )
 
+  const [buscar, setBuscar] = useState('')
+  const t = buscar.trim().toLowerCase()
+  const filtradas = t
+    ? items.filter((i) =>
+        String(i.nombre ?? '').toLowerCase().includes(t) ||
+        String(i.contacto ?? '').toLowerCase().includes(t),
+      )
+    : items
+
   return (
     <div>
+      <BuscarInput valor={buscar} onChange={setBuscar} placeholder="Buscar distribuidor o contacto…" />
       <div className="flex gap-2 mb-4">
         <input
           type="text"
@@ -507,7 +558,7 @@ function TabDistribuidores() {
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-200">
-          {items.map((i) => (
+          {filtradas.map((i) => (
             <tr key={i.id_distribuidor} className="hover:bg-slate-50">
               <td className="px-3 py-2 text-slate-700">{i.nombre}</td>
               <td className="px-3 py-2 text-slate-700">{i.contacto ?? '—'}</td>

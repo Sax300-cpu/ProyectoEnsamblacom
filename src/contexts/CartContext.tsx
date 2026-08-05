@@ -21,7 +21,6 @@ interface CartContextType {
   addToCart: (item: CartItem) => void
   removeFromCart: (id_repuesto: number) => void
   updateQuantity: (id_repuesto: number, cantidad: number) => void
-  updatePrecio: (id_repuesto: number, precio: number, tipo: 'tecnico' | 'cliente') => void
   clearCart: () => void
   total: number
   itemCount: number
@@ -76,16 +75,6 @@ export function CartProvider({ children }: { children: ReactNode }) {
     )
   }
 
-  const updatePrecio = (id_repuesto: number, _precio: number, tipo: 'tecnico' | 'cliente') => {
-    setItems((prev) =>
-      prev.map((i) =>
-        i.id_repuesto === id_repuesto
-          ? { ...i, precio: tipo === 'tecnico' ? i.precio_tecnico : i.precio_cliente, tipo_precio: tipo }
-          : i,
-      ),
-    )
-  }
-
   const clearCart = () => {
     setItems([])
     setIsOpen(false)
@@ -108,7 +97,6 @@ export function CartProvider({ children }: { children: ReactNode }) {
         addToCart,
         removeFromCart,
         updateQuantity,
-        updatePrecio,
         clearCart,
         total,
         itemCount,
