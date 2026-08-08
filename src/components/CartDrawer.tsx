@@ -23,6 +23,8 @@ export function CartDrawer({ onVentaExitosa }: CartDrawerProps) {
   const [estado, setEstado] = useState<EstadoPago>('Pagado')
   const [metodoPago, setMetodoPago] = useState<MetodoPago>('Efectivo')
   const [nroComprobante, setNroComprobante] = useState('')
+  const [montoEfectivo, setMontoEfectivo] = useState('')
+  const [montoTransferencia, setMontoTransferencia] = useState('')
   const [clientes, setClientes] = useState<ClienteOption[]>([])
 
   useEffect(() => {
@@ -46,7 +48,13 @@ export function CartDrawer({ onVentaExitosa }: CartDrawerProps) {
 
   const esPagoDiferido = estado === 'Fiado' || estado === 'A Prueba'
   const esTransferencia = metodoPago === 'Transferencia'
-  const confirmDisabled = items.length === 0 || !alias.trim() || enviando || (esTransferencia && !nroComprobante.trim())
+  const esMixto = metodoPago === 'Mixto'
+  const esMixtoValido =
+    Math.round((Number(montoEfectivo) + Number(montoTransferencia)) * 100) ===
+    Math.round(total * 100)
+  const confirmDisabled = items.length === 0 || !alias.trim() || enviando ||
+    ((esTransferencia || esMixto) && !nroComprobante.trim()) ||
+    (esMixto && !esMixtoValido)
 
   const handleConfirm = async () => {
     if (items.length === 0) return
@@ -75,13 +83,23 @@ export function CartDrawer({ onVentaExitosa }: CartDrawerProps) {
       }
 
       /* ───── Paso A: Insertar venta ───── */
+      const montos =
+        metodoPago === 'Efectivo'
+          ? { monto_efectivo: total, monto_transferencia: 0 }
+          : metodoPago === 'Transferencia'
+            ? { monto_efectivo: 0, monto_transferencia: total }
+            : metodoPago === 'Mixto'
+              ? { monto_efectivo: Number(montoEfectivo) || 0, monto_transferencia: Number(montoTransferencia) || 0 }
+              : { monto_efectivo: 0, monto_transferencia: 0 }
+
       const ventaPayload: Record<string, unknown> = {
         alias_tecnico: nombreAlias,
         estado_pago: estado,
         metodo_pago: metodoPago,
         total,
         notas: null,
-        numero_comprobante: esTransferencia ? nroComprobante.trim() : null,
+        numero_comprobante: (esTransferencia || esMixto) ? nroComprobante.trim() : null,
+        ...montos,
       }
       if (idCliente) ventaPayload.id_cliente = idCliente
 
@@ -171,6 +189,8 @@ export function CartDrawer({ onVentaExitosa }: CartDrawerProps) {
       setEstado('Pagado')
       setMetodoPago('Efectivo')
       setNroComprobante('')
+      setMontoEfectivo('')
+      setMontoTransferencia('')
       transactionSuccess()
       onVentaExitosa?.()
     } catch (e) {
@@ -300,7 +320,11 @@ export function CartDrawer({ onVentaExitosa }: CartDrawerProps) {
                   disabled={esPagoDiferido}
                   onChange={(e) => {
                     setMetodoPago(e.target.value as MetodoPago)
-                    if (e.target.value !== 'Transferencia') setNroComprobante('')
+                    if (e.target.value !== 'Transferencia' && e.target.value !== 'Mixto') setNroComprobante('')
+                    if (e.target.value !== 'Mixto') {
+                      setMontoEfectivo('')
+                      setMontoTransferencia('')
+                    }
                   }}
                   className={`rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${
                     esPagoDiferido
@@ -314,12 +338,13 @@ export function CartDrawer({ onVentaExitosa }: CartDrawerProps) {
                     <>
                       <option value="Efectivo">Efectivo</option>
                       <option value="Transferencia">Transferencia</option>
+                      <option value="Mixto">Mixto</option>
                     </>
                   )}
                 </select>
               </div>
 
-              {esTransferencia && (
+              {(esTransferencia || esMixto) && (
                 <input
                   type="text"
                   placeholder="Nro. de Comprobante *"
@@ -327,6 +352,38 @@ export function CartDrawer({ onVentaExitosa }: CartDrawerProps) {
                   onChange={(e) => setNroComprobante(e.target.value)}
                   className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
+              )}
+
+              {esMixto && (
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-xs font-medium text-slate-600 mb-1">Efectivo ($)</label>
+                    <input
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      value={montoEfectivo}
+                      onChange={(e) => setMontoEfectivo(e.target.value)}
+                      className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-600 mb-1">Transferencia ($)</label>
+                    <input
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      value={montoTransferencia}
+                      onChange={(e) => setMontoTransferencia(e.target.value)}
+                      className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                </div>
+              )}
+              {esMixto && !esMixtoValido && (
+                <p className="text-xs text-red-600">
+                  La suma de Efectivo + Transferencia debe ser $ {total.toFixed(2)}
+                </p>
               )}
 
               <button

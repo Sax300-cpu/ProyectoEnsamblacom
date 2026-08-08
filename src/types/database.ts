@@ -1,5 +1,5 @@
 export type EstadoPago = 'Pagado' | 'Fiado' | 'A Prueba' | 'Garantia'
-export type MetodoPago = 'Efectivo' | 'Transferencia' | 'Pendiente'
+export type MetodoPago = 'Efectivo' | 'Transferencia' | 'Mixto' | 'Pendiente'
 
 export interface Categoria {
   id_categoria: number
@@ -72,6 +72,8 @@ export interface Venta {
   fecha_hora: string
   numero_comprobante?: string | null
   fecha_cobro?: string | null
+  monto_efectivo?: number | null
+  monto_transferencia?: number | null
 }
 
 export interface DetalleVenta {
@@ -85,6 +87,8 @@ export interface DetalleVenta {
   fecha_pago_item?: string | null
   metodo_pago_item?: string | null
   referencia_item?: string | null
+  monto_efectivo_item?: number | null
+  monto_transferencia_item?: number | null
 }
 
 export interface DetalleVentaConRepuesto extends DetalleVenta {

@@ -23,6 +23,8 @@ interface FilaVenta {
   fecha: string
   fechaCobro: string | null
   precioUnitario: number
+  montoEfectivo: number
+  montoTransferencia: number
 }
 
 interface TopItem {
@@ -160,11 +162,16 @@ export function Reportes() {
       estadoPago: string
       alias: string
       precioUnitario: number
+      montoEfectivo: number
+      montoTransferencia: number
     }
 
     const tx: Tx[] = []
 
-    // Query 1 — Ventas directas: pagadas al momento (una fila por venta, monto = venta.total)
+    // Query 1 — Ventas directas: pagadas al momento.
+    // Una fila por ÍTEM vendido (para que el historial y el PDF muestren todos los
+    // repuestos de una misma venta). Los montos de efectivo/transferencia de la venta
+    // se reparten proporcionalmente entre sus ítems para no duplicar el total de la factura.
     for (const v of ventas) {
       if ((v.estado_pago || '').toLowerCase() !== 'pagado') continue
       // Si la venta tiene ítems 'Liquidado', su ingreso ya se cuenta por ítem (Query 2):
@@ -178,30 +185,58 @@ export function Reportes() {
           : null
       if (!fechaISO) continue
 
-      const det = v.detalles_venta[0]
-      if (!det) continue
+      const sumaSubtotales = v.detalles_venta.reduce(
+        (sum, d) => sum + (d.subtotal ?? d.precio_unitario * d.cantidad),
+        0,
+      )
+      let montoEfectivoVenta = parseFloat(String(v.monto_efectivo ?? 0) || '0')
+      let montoTransferenciaVenta = parseFloat(String(v.monto_transferencia ?? 0) || '0')
 
-      tx.push({
-        id: `v-${v.id_venta}`,
-        fechaISO,
-        fechaCobroISO: null,
-        categoria: det.repuestos.categorias?.nombre ?? '—',
-        marca: det.repuestos.modelos?.marcas?.nombre ?? '—',
-        modelo: det.repuestos.modelos?.nombre ?? '—',
-        cantidad: det.cantidad,
-        monto: v.total,
-        metodo: v.metodo_pago ?? '—',
-        referencia: v.numero_comprobante ?? null,
-        estadoPago: v.estado_pago,
-        alias: v.alias_tecnico,
-        precioUnitario: det.precio_unitario,
-      })
+      // Respaldo histórico: registros previos al cambio de BD (columnas en 0),
+      // o ventas 100% efectivo/transferencia que nunca llenaron el desglose.
+      if (montoEfectivoVenta === 0 && montoTransferenciaVenta === 0) {
+        if (v.metodo_pago === 'Efectivo') montoEfectivoVenta = parseFloat(String(v.total ?? 0) || '0')
+        if (v.metodo_pago === 'Transferencia') montoTransferenciaVenta = parseFloat(String(v.total ?? 0) || '0')
+      }
+
+      for (const det of v.detalles_venta) {
+        const subtotalDetalle = det.subtotal ?? det.precio_unitario * det.cantidad
+        const proporcion =
+          sumaSubtotales > 0 ? subtotalDetalle / sumaSubtotales : 1 / v.detalles_venta.length
+
+        tx.push({
+          id: `v-${v.id_venta}-${det.id_detalle}`,
+          fechaISO,
+          fechaCobroISO: null,
+          categoria: det.repuestos.categorias?.nombre ?? '—',
+          marca: det.repuestos.modelos?.marcas?.nombre ?? '—',
+          modelo: det.repuestos.modelos?.nombre ?? '—',
+          cantidad: det.cantidad,
+          monto: subtotalDetalle,
+          metodo: v.metodo_pago ?? '—',
+          referencia: v.numero_comprobante ?? null,
+          estadoPago: v.estado_pago,
+          alias: v.alias_tecnico,
+          precioUnitario: det.precio_unitario,
+          montoEfectivo: montoEfectivoVenta * proporcion,
+          montoTransferencia: montoTransferenciaVenta * proporcion,
+        })
+      }
     }
 
     // Query 2 — Cobros diferidos: ítems liquidados (una fila por ítem, monto = detalle.subtotal)
     for (const v of ventas) {
       for (const det of v.detalles_venta) {
         if (det.estado_item !== 'Liquidado' || !enRango(det.fecha_pago_item)) continue
+
+        let montoEfectivoItem = parseFloat(String(det.monto_efectivo_item ?? 0) || '0')
+        let montoTransferenciaItem = parseFloat(String(det.monto_transferencia_item ?? 0) || '0')
+
+        // Respaldo histórico para cobros de registros previos al cambio de BD.
+        if (montoEfectivoItem === 0 && montoTransferenciaItem === 0) {
+          if (det.metodo_pago_item === 'Efectivo') montoEfectivoItem = det.subtotal
+          if (det.metodo_pago_item === 'Transferencia') montoTransferenciaItem = det.subtotal
+        }
 
         tx.push({
           id: `d-${v.id_venta}-${det.id_detalle}`,
@@ -217,6 +252,8 @@ export function Reportes() {
           estadoPago: v.estado_pago,
           alias: v.alias_tecnico,
           precioUnitario: det.precio_unitario,
+          montoEfectivo: montoEfectivoItem,
+          montoTransferencia: montoTransferenciaItem,
         })
       }
     }
@@ -237,6 +274,8 @@ export function Reportes() {
         fecha: formatearFechaComprobante(t.fechaISO) ?? '—',
         fechaCobro: formatearFechaComprobante(t.fechaCobroISO),
         precioUnitario: t.precioUnitario,
+        montoEfectivo: t.montoEfectivo,
+        montoTransferencia: t.montoTransferencia,
       }))
 
     return resultado
@@ -247,11 +286,50 @@ export function Reportes() {
     let efectivoCaja = 0
     let totalTransferencias = 0
 
-    for (const t of transaccionesDelPeriodo) {
-      ingresosTotales += t.total
-      const m = (t.metodoPago || '').toLowerCase()
-      if (m === 'efectivo') efectivoCaja += t.total
-      else if (m === 'transferencia') totalTransferencias += t.total
+    const sinMilisegundos = (iso: string) => iso.replace(/\.\d{3}Z$/, 'Z')
+    const inicioISO = sinMilisegundos(new Date(`${fechaInicio}T00:00:00`).toISOString())
+    const finISO = sinMilisegundos(new Date(`${fechaFin}T23:59:59`).toISOString())
+    const enRango = (iso?: string | null) => !!iso && iso >= inicioISO && iso <= finISO
+
+    // 1. Ventas directas del período: sumar cada venta UNA sola vez (no por ítem),
+    // evitando duplicar ingresos cuando una misma venta tiene varios repuestos.
+    for (const v of ventas) {
+      if ((v.estado_pago || '').toLowerCase() !== 'pagado') continue
+      if (v.detalles_venta.some((d) => d.estado_item === 'Liquidado')) continue
+
+      let montoEfectivoVenta = parseFloat(String(v.monto_efectivo ?? 0) || '0')
+      let montoTransferenciaVenta = parseFloat(String(v.monto_transferencia ?? 0) || '0')
+
+      // Respaldo histórico: registros previos al cambio de BD (columnas en 0),
+      // o ventas 100% efectivo/transferencia que nunca llenaron el desglose.
+      if (montoEfectivoVenta === 0 && montoTransferenciaVenta === 0) {
+        if (v.metodo_pago === 'Efectivo') montoEfectivoVenta = parseFloat(String(v.total ?? 0) || '0')
+        if (v.metodo_pago === 'Transferencia') montoTransferenciaVenta = parseFloat(String(v.total ?? 0) || '0')
+      }
+
+      ingresosTotales += parseFloat(String(v.total ?? 0) || '0')
+      efectivoCaja += montoEfectivoVenta
+      totalTransferencias += montoTransferenciaVenta
+    }
+
+    // 2. Cobros diferidos del período: por ítem liquidado (una sola vez cada uno).
+    for (const v of ventas) {
+      for (const det of v.detalles_venta) {
+        if (det.estado_item !== 'Liquidado' || !enRango(det.fecha_pago_item)) continue
+
+        let montoEfectivoItem = parseFloat(String(det.monto_efectivo_item ?? 0) || '0')
+        let montoTransferenciaItem = parseFloat(String(det.monto_transferencia_item ?? 0) || '0')
+
+        // Respaldo histórico: cobros de registros previos al cambio de BD.
+        if (montoEfectivoItem === 0 && montoTransferenciaItem === 0) {
+          if (det.metodo_pago_item === 'Efectivo') montoEfectivoItem = det.subtotal
+          if (det.metodo_pago_item === 'Transferencia') montoTransferenciaItem = det.subtotal
+        }
+
+        ingresosTotales += det.subtotal
+        efectivoCaja += montoEfectivoItem
+        totalTransferencias += montoTransferenciaItem
+      }
     }
 
     return { ingresosTotales, efectivoCaja, totalTransferencias }
@@ -586,7 +664,7 @@ export function Reportes() {
                     <td className="px-5 py-3 text-center font-mono text-slate-700">{fila.cantidad}</td>
                     <td className="px-5 py-3 text-center text-slate-600">
                       {fila.metodoPago}
-                      {fila.metodoPago === 'Transferencia' && fila.numeroComprobante && (
+                      {fila.numeroComprobante && (
                         <span className="block text-xs text-gray-500 mt-0.5">
                           Ref: {fila.numeroComprobante}
                         </span>

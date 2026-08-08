@@ -15,8 +15,14 @@ interface Props {
 export function LiquidarModal({ venta, detalle, onClose, onSuccess }: Props) {
   const [metodo, setMetodo] = useState<MetodoPago>('Efectivo')
   const [referencia, setReferencia] = useState('')
+  const [montoEfectivo, setMontoEfectivo] = useState('')
+  const [montoTransferencia, setMontoTransferencia] = useState('')
   const [enviando, setEnviando] = useState(false)
   const esTransferencia = metodo === 'Transferencia'
+  const esMixto = metodo === 'Mixto'
+  const esMixtoValido =
+    Math.round((Number(montoEfectivo) + Number(montoTransferencia)) * 100) ===
+    Math.round(detalle.subtotal * 100)
 
   const descripcion = (() => {
     const cat = detalle.repuestos.categorias?.nombre ?? '—'
@@ -28,15 +34,25 @@ export function LiquidarModal({ venta, detalle, onClose, onSuccess }: Props) {
   })()
 
   const handleConfirm = async () => {
-    if (esTransferencia && !referencia.trim()) {
+    if ((esTransferencia || esMixto) && !referencia.trim()) {
       toast.error('Por favor, ingresa la referencia de la transferencia.')
       return
     }
+    if (esMixto && !esMixtoValido) return
 
     setEnviando(true)
 
     try {
       const fechaPago = new Date().toISOString()
+
+      const montos =
+        metodo === 'Efectivo'
+          ? { monto_efectivo_item: detalle.subtotal, monto_transferencia_item: 0 }
+          : metodo === 'Transferencia'
+            ? { monto_efectivo_item: 0, monto_transferencia_item: detalle.subtotal }
+            : metodo === 'Mixto'
+              ? { monto_efectivo_item: Number(montoEfectivo) || 0, monto_transferencia_item: Number(montoTransferencia) || 0 }
+              : { monto_efectivo_item: 0, monto_transferencia_item: 0 }
 
       const { error: errDet } = await supabase
         .from('detalles_venta')
@@ -45,6 +61,7 @@ export function LiquidarModal({ venta, detalle, onClose, onSuccess }: Props) {
           fecha_pago_item: fechaPago,
           metodo_pago_item: metodo,
           referencia_item: referencia.trim() || null,
+          ...montos,
         })
         .eq('id_detalle', detalle.id_detalle)
       if (errDet) throw errDet
@@ -66,7 +83,9 @@ export function LiquidarModal({ venta, detalle, onClose, onSuccess }: Props) {
       const updateVenta: Record<string, unknown> = {
         total: nuevoTotal,
         metodo_pago: metodo,
-        numero_comprobante: esTransferencia ? referencia.trim() : null,
+        numero_comprobante: (esTransferencia || esMixto) ? referencia.trim() : null,
+        monto_efectivo: montos.monto_efectivo_item,
+        monto_transferencia: montos.monto_transferencia_item,
       }
       if (nuevoTotal <= 0) {
         updateVenta.estado_pago = 'Pagado'
@@ -137,16 +156,21 @@ export function LiquidarModal({ venta, detalle, onClose, onSuccess }: Props) {
             onChange={(e) => {
               const nuevo = e.target.value as MetodoPago
               if (nuevo === 'Efectivo') setReferencia('')
+              if (nuevo !== 'Mixto') {
+                setMontoEfectivo('')
+                setMontoTransferencia('')
+              }
               setMetodo(nuevo)
             }}
             className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
             <option value="Efectivo">Efectivo</option>
             <option value="Transferencia">Transferencia</option>
+            <option value="Mixto">Mixto</option>
           </select>
         </div>
 
-        {esTransferencia && (
+        {(esTransferencia || esMixto) && (
           <div className="space-y-2">
             <label className="block text-sm font-medium text-slate-700">
               Número de Comprobante <span className="text-red-500">(Obligatorio)</span>
@@ -161,6 +185,38 @@ export function LiquidarModal({ venta, detalle, onClose, onSuccess }: Props) {
           </div>
         )}
 
+        {esMixto && (
+          <div className="grid grid-cols-2 gap-2">
+            <div className="space-y-1">
+              <label className="block text-xs font-medium text-slate-600">Efectivo ($)</label>
+              <input
+                type="number"
+                min={0}
+                step="0.01"
+                value={montoEfectivo}
+                onChange={(e) => setMontoEfectivo(e.target.value)}
+                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="block text-xs font-medium text-slate-600">Transferencia ($)</label>
+              <input
+                type="number"
+                min={0}
+                step="0.01"
+                value={montoTransferencia}
+                onChange={(e) => setMontoTransferencia(e.target.value)}
+                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+          </div>
+        )}
+        {esMixto && !esMixtoValido && (
+          <p className="text-xs text-red-600">
+            La suma de Efectivo + Transferencia debe ser $ {detalle.subtotal.toFixed(2)}
+          </p>
+        )}
+
         <div className="flex justify-end gap-3 pt-2">
           <button
             onClick={onClose}
@@ -171,7 +227,7 @@ export function LiquidarModal({ venta, detalle, onClose, onSuccess }: Props) {
           </button>
           <button
             onClick={handleConfirm}
-            disabled={enviando || (esTransferencia && !referencia.trim())}
+            disabled={enviando || ((esTransferencia || esMixto) && !referencia.trim()) || (esMixto && !esMixtoValido)}
             className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50 transition-colors cursor-pointer"
           >
             {enviando ? 'Procesando…' : 'Confirmar Pago'}

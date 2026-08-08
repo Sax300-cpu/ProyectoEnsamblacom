@@ -130,6 +130,8 @@ export interface FilaReporteInput {
   cantidad: number
   total: number
   metodoPago: string
+  montoEfectivo?: number
+  montoTransferencia?: number
 }
 
 function agruparParaReporte(datos: FilaReporteInput[]): FilaReporteInput[] {
@@ -140,6 +142,9 @@ function agruparParaReporte(datos: FilaReporteInput[]): FilaReporteInput[] {
     if (existente) {
       existente.cantidad += fila.cantidad
       existente.total += fila.total
+      existente.montoEfectivo = (existente.montoEfectivo ?? 0) + (fila.montoEfectivo ?? 0)
+      existente.montoTransferencia =
+        (existente.montoTransferencia ?? 0) + (fila.montoTransferencia ?? 0)
     } else {
       mapa.set(llave, { ...fila })
     }
@@ -201,8 +206,8 @@ export function generarReportePeriodoPDF(
 
   for (const fila of agrupadas) {
     granTotal += fila.total
-    if (fila.metodoPago === 'Efectivo') totalEfectivo += fila.total
-    else if (fila.metodoPago === 'Transferencia') totalTransferencia += fila.total
+    totalEfectivo += fila.montoEfectivo ?? 0
+    totalTransferencia += fila.montoTransferencia ?? 0
   }
 
   const cuerpo = agrupadas.map((fila) => [
