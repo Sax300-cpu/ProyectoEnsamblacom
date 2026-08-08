@@ -102,9 +102,9 @@ export function Clientes() {
           No hay clientes registrados.
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-lg border border-slate-200 shadow-sm">
+        <div className="max-h-[60vh] overflow-y-auto overflow-x-auto relative shadow-sm rounded-lg border border-slate-200">
           <table className="min-w-full text-sm">
-            <thead>
+            <thead className="sticky top-0 z-10">
               <tr className="bg-slate-100 text-slate-600 uppercase text-xs tracking-wider">
                 <th className="text-left px-4 py-3 font-semibold">Nombre</th>
                 <th className="text-left px-4 py-3 font-semibold">Teléfono</th>

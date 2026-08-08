@@ -175,27 +175,29 @@ function TabCategorias() {
           </button>
         )}
       </div>
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="bg-slate-100 text-slate-600 uppercase text-xs tracking-wider">
-            <th className="text-left px-3 py-2 font-semibold">Nombre</th>
-            <th className="text-center px-3 py-2 font-semibold">Acciones</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-slate-200">
-          {filtradas.map((i) => (
-            <tr key={i.id_categoria} className="hover:bg-slate-50">
-              <td className="px-3 py-2 text-slate-700">{i.nombre}</td>
-              <td className="px-3 py-2 text-center">
-                <div className="flex items-center justify-center gap-1">
-                  <button onClick={() => handleEdit(i)} className="cursor-pointer text-xs p-1 rounded hover:bg-slate-200 transition-colors" title="Editar">✏️</button>
-                  <button onClick={() => handleDelete(i)} className="cursor-pointer text-xs p-1 rounded hover:bg-red-100 transition-colors" title="Eliminar">🗑️</button>
-                </div>
-              </td>
+      <div className="max-h-[60vh] overflow-y-auto overflow-x-auto relative shadow-sm rounded-lg border border-slate-200">
+        <table className="w-full text-sm">
+          <thead className="sticky top-0 z-10">
+            <tr className="bg-slate-100 text-slate-600 uppercase text-xs tracking-wider">
+              <th className="text-left px-3 py-2 font-semibold">Nombre</th>
+              <th className="text-center px-3 py-2 font-semibold">Acciones</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody className="divide-y divide-slate-200">
+            {filtradas.map((i) => (
+              <tr key={i.id_categoria} className="hover:bg-slate-50">
+                <td className="px-3 py-2 text-slate-700">{i.nombre}</td>
+                <td className="px-3 py-2 text-center">
+                  <div className="flex items-center justify-center gap-1">
+                    <button onClick={() => handleEdit(i)} className="cursor-pointer text-xs p-1 rounded hover:bg-slate-200 transition-colors" title="Editar">✏️</button>
+                    <button onClick={() => handleDelete(i)} className="cursor-pointer text-xs p-1 rounded hover:bg-red-100 transition-colors" title="Eliminar">🗑️</button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
       <ConfirmDialog
         abierto={!!borrar}
         titulo="Eliminar categoría"

@@ -37,6 +37,7 @@ interface FormState {
   costo_distribuidor: number | ''
   precio_tecnico: number | ''
   precio_cliente: number | ''
+  detalles: string
 }
 
 interface AtributosState {
@@ -53,6 +54,7 @@ const initialForm: FormState = {
   costo_distribuidor: '',
   precio_tecnico: '',
   precio_cliente: '',
+  detalles: '',
 }
 
 interface RepuestosProps {
@@ -418,7 +420,7 @@ export function Repuestos({ refreshSignal }: RepuestosProps) {
                                   </span>
                                 )]
                               }
-                              if (key === 'calidad' || key === 'color') {
+                              if (key === 'calidad' || key === 'color' || key === 'detalles') {
                                 return [(
                                   <span key={key} className="inline-block rounded-md bg-slate-100 text-slate-600 px-2 py-0.5 text-xs uppercase">
                                     {String(val)}
@@ -622,6 +624,7 @@ function ModalRepuesto({ isAdmin, editando, categoriaPantallasId, onClose, onSuc
         costo_distribuidor: editando.costo_distribuidor,
         precio_tecnico: editando.precio_tecnico,
         precio_cliente: editando.precio_cliente,
+        detalles: String((editando.atributos?.detalles as string | undefined) ?? ''),
       }
     }
     return { ...initialForm }
@@ -710,6 +713,11 @@ function ModalRepuesto({ isAdmin, editando, categoriaPantallasId, onClose, onSuc
       return
     }
 
+    if (name === 'detalles') {
+      setForm((prev) => ({ ...prev, detalles: value }))
+      return
+    }
+
     setForm((prev) => ({ ...prev, [name]: value === '' ? '' : Number(value) }))
 
     if (name === 'id_modelo_principal') {
@@ -735,6 +743,14 @@ function ModalRepuesto({ isAdmin, editando, categoriaPantallasId, onClose, onSuc
     }))
   }
 
+  const atributosPayload = (() => {
+    const base = { ...atributos } as Record<string, unknown>
+    const d = form.detalles.trim()
+    if (d) base.detalles = d
+    else delete base.detalles
+    return base
+  })()
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError(null)
@@ -758,7 +774,7 @@ function ModalRepuesto({ isAdmin, editando, categoriaPantallasId, onClose, onSuc
         costo_distribuidor: costo,
         precio_tecnico: precioTecnico,
         precio_cliente: precioCliente,
-        atributos: atributos as Record<string, unknown>,
+        atributos: atributosPayload,
       }
 
       const { error: updErr } = await supabase
@@ -811,7 +827,7 @@ function ModalRepuesto({ isAdmin, editando, categoriaPantallasId, onClose, onSuc
       costo_distribuidor: costo,
       precio_tecnico: precioTecnico,
       precio_cliente: precioCliente,
-      atributos: atributos as Record<string, unknown>,
+      atributos: atributosPayload,
     }
 
     const normalizarAtributos = (atrib: Record<string, unknown> | null | undefined): Record<string, unknown> => {
@@ -1154,6 +1170,21 @@ function ModalRepuesto({ isAdmin, editando, categoriaPantallasId, onClose, onSuc
               </div>
             </div>
           )}
+
+          {/* Detalles dinámicos según categoría */}
+          <div className="sm:col-span-2">
+            <label className="block text-sm font-medium text-slate-700 mb-1">
+              {nombreCategoria === 'huellas' ? 'Color' : 'Detalles (Opcional)'}
+            </label>
+            <input
+              type="text"
+              name="detalles"
+              value={form.detalles}
+              onChange={handleChange}
+              placeholder={nombreCategoria === 'huellas' ? 'Ej. Azul, Negro...' : 'Ej. Grande, Dos puntos, Lente superior...'}
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
 
           {/* Stock */}
           <div>

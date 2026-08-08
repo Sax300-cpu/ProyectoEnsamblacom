@@ -401,7 +401,7 @@ export function Pantallas({ refreshSignal }: PantallasProps) {
                                 </span>
                               )]
                             }
-                            if (key === 'calidad' || key === 'color') {
+                            if (key === 'calidad' || key === 'color' || key === 'detalles') {
                               return [(
                                 <span key={key} className="inline-block rounded-md bg-slate-100 text-slate-600 px-2 py-0.5 text-xs uppercase">
                                   {String(val)}
