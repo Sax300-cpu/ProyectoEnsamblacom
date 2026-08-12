@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
-import type { Venta, VentaConDetalles } from '../types/database'
+import type { VentaConDetalles } from '../types/database'
 import { generarReciboVenta, generarReportePeriodoPDF } from '../utils/generadorPDF'
 import { formatearFechaComprobante } from '../lib/format'
+import { useAuth } from '../contexts/AuthContext'
+import { toast } from '../components/Toaster'
 
 function hoyISO() {
   const now = new Date()
@@ -25,6 +27,7 @@ interface FilaVenta {
   precioUnitario: number
   montoEfectivo: number
   montoTransferencia: number
+  ventaOriginal: VentaConDetalles
 }
 
 interface TopItem {
@@ -36,7 +39,183 @@ interface TopItem {
   total: number
 }
 
+// Reconstruye los ítems del ticket tal cual se vendieron en el carrito,
+// a partir de la venta original completa (todos sus detalles_venta).
+function detallesParaRecibo(venta: VentaConDetalles) {
+  return venta.detalles_venta.map((det) => ({
+    categoria: det.repuestos.categorias?.nombre ?? '—',
+    marca: det.repuestos.modelos?.marcas?.nombre ?? '—',
+    modelo: det.repuestos.modelos?.nombre ?? '—',
+    cantidad: det.cantidad,
+    precioUnitario: det.precio_unitario,
+    subtotal: det.subtotal,
+  }))
+}
+
+function ModalDevolucion({
+  venta,
+  onClose,
+  onSuccess,
+}: {
+  venta: VentaConDetalles
+  onClose: () => void
+  onSuccess: () => void
+}) {
+  const [seleccion, setSeleccion] = useState<Set<number>>(new Set())
+  const [enviando, setEnviando] = useState(false)
+
+  const detalles = venta.detalles_venta
+  const seleccionados = detalles.filter((d) => seleccion.has(d.id_detalle))
+  const totalDevolver = seleccionados.reduce((sum, d) => sum + d.subtotal, 0)
+
+  const toggle = (id: number) => {
+    setSeleccion((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const handleConfirm = async () => {
+    if (seleccionados.length === 0) return
+    setEnviando(true)
+    try {
+      const ids = seleccionados.map((d) => d.id_detalle)
+
+      // a) Marcar los ítems seleccionados como devueltos.
+      const { error: errDet } = await supabase
+        .from('detalles_venta')
+        .update({ devuelto: true })
+        .in('id_detalle', ids)
+      if (errDet) throw errDet
+
+      // b) Reponer stock, agrupando por repuesto para no escribir dos veces el mismo.
+      const cantidadPorRepuesto = new Map<number, number>()
+      for (const d of seleccionados) {
+        cantidadPorRepuesto.set(
+          d.id_repuesto,
+          (cantidadPorRepuesto.get(d.id_repuesto) ?? 0) + d.cantidad,
+        )
+      }
+      for (const [idRepuesto, cantidad] of cantidadPorRepuesto) {
+        const { data: rep, error: errRep } = await supabase
+          .from('repuestos')
+          .select('stock')
+          .eq('id_repuesto', idRepuesto)
+          .single()
+        if (errRep) throw errRep
+        const { error: errStock } = await supabase
+          .from('repuestos')
+          .update({ stock: (rep?.stock ?? 0) + cantidad })
+          .eq('id_repuesto', idRepuesto)
+        if (errStock) throw errStock
+      }
+
+      // c) Incrementar el monto_devuelto acumulado de la venta.
+      const { data: ventaRow, error: errVenta } = await supabase
+        .from('ventas')
+        .select('monto_devuelto')
+        .eq('id_venta', venta.id_venta)
+        .single()
+      if (errVenta) throw errVenta
+      const { error: errMonto } = await supabase
+        .from('ventas')
+        .update({ monto_devuelto: (ventaRow?.monto_devuelto ?? 0) + totalDevolver })
+        .eq('id_venta', venta.id_venta)
+      if (errMonto) throw errMonto
+
+      toast.success(`Devolución registrada: $ ${totalDevolver.toFixed(2)} reembolsados`)
+      onSuccess()
+    } catch (error) {
+      console.error('Error en devolución:', error)
+      toast.error(
+        'Error al procesar la devolución: ' +
+          ((error as Error).message || JSON.stringify(error)),
+      )
+      setEnviando(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center">
+      <div
+        className="bg-white rounded-xl shadow-xl w-full max-w-md mx-4 p-6 space-y-4"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h3 className="text-lg font-semibold text-slate-800">Devolución de Venta</h3>
+        <p className="text-sm text-slate-600">
+          Cliente: <span className="font-medium text-slate-800">{venta.alias_tecnico}</span>
+        </p>
+
+        <div className="rounded-lg border border-slate-200 divide-y divide-slate-100 max-h-60 overflow-y-auto">
+          {detalles.map((det) => {
+            const yaDevuelto = det.devuelto === true
+            const categoria = det.repuestos.categorias?.nombre ?? '—'
+            const marca = det.repuestos.modelos?.marcas?.nombre ?? '—'
+            const modelo = det.repuestos.modelos?.nombre ?? '—'
+            return (
+              <label
+                key={det.id_detalle}
+                className={`flex items-center gap-3 px-3 py-2 ${
+                  yaDevuelto ? 'opacity-60' : 'cursor-pointer hover:bg-slate-50'
+                }`}
+              >
+                <input
+                  type="checkbox"
+                  checked={seleccion.has(det.id_detalle)}
+                  disabled={yaDevuelto || enviando}
+                  onChange={() => toggle(det.id_detalle)}
+                  className="h-4 w-4 rounded border-slate-300 text-red-600 focus:ring-red-500 cursor-pointer disabled:cursor-not-allowed"
+                />
+                <span className="flex-1 truncate text-sm text-slate-700">
+                  {det.cantidad}x {categoria} {marca} {modelo}
+                </span>
+                {yaDevuelto && (
+                  <span className="rounded-full bg-emerald-100 text-emerald-700 px-2 py-0.5 text-xs font-semibold whitespace-nowrap">
+                    Devuelto
+                  </span>
+                )}
+                <span className="font-semibold text-slate-800 whitespace-nowrap text-sm">
+                  $ {det.subtotal.toFixed(2)}
+                </span>
+              </label>
+            )
+          })}
+        </div>
+
+        <div className="flex items-center justify-between text-sm">
+          <span className="font-medium text-slate-700">
+            Total a devolver ({seleccionados.length} ítem{seleccionados.length === 1 ? '' : 's'})
+          </span>
+          <span className="text-base font-bold text-red-600 font-mono">
+            $ {totalDevolver.toFixed(2)}
+          </span>
+        </div>
+
+        <div className="flex justify-end gap-3 pt-1">
+          <button
+            onClick={onClose}
+            disabled={enviando}
+            className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50 transition-colors cursor-pointer"
+          >
+            Cancelar
+          </button>
+          <button
+            onClick={handleConfirm}
+            disabled={enviando || seleccionados.length === 0}
+            className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50 transition-colors cursor-pointer"
+          >
+            {enviando ? 'Procesando…' : `Devolver $ ${totalDevolver.toFixed(2)}`}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export function Reportes() {
+  const { isAdmin } = useAuth()
   const [fechaInicio, setFechaInicio] = useState(hoyISO())
   const [fechaFin, setFechaFin] = useState(hoyISO())
   const [vistaActiva, setVistaActiva] = useState<'top10' | 'historial' | 'cobros'>('top10')
@@ -44,6 +223,8 @@ export function Reportes() {
   const [deudaGlobal, setDeudaGlobal] = useState(0)
   const [isLoading, setIsLoading] = useState(true)
   const [busquedaHistorial, setBusquedaHistorial] = useState('')
+  const [devolviendo, setDevolviendo] = useState<VentaConDetalles | null>(null)
+  const [refreshKey, setRefreshKey] = useState(0)
 
   useEffect(() => {
     const fetchData = async () => {
@@ -84,10 +265,11 @@ export function Reportes() {
         .order('fecha_hora', { ascending: false })
 
       // Query 2 — Cobros diferidos: ítems liquidados en el período (fecha_pago_item),
-      // sin importar cuándo se vendió la venta padre.
+      // sin importar cuándo se vendió la venta padre. Se anida la venta padre con TODOS
+      // sus detalles para poder reconstruir el ticket completo de deudas antiguas.
       const queryDetalles = supabase
         .from('detalles_venta')
-        .select(`*, ${relacionesRepuestos}, ventas(*)`)
+        .select(`*, ${relacionesRepuestos}, ventas(*, detalles_venta(*, ${relacionesRepuestos}))`)
         .eq('estado_item', 'Liquidado')
         .gte('fecha_pago_item', inicioISO)
         .lte('fecha_pago_item', finISO)
@@ -97,25 +279,17 @@ export function Reportes() {
 
       const ventasDirectas = (resVentas.data ?? []) as unknown as VentaConDetalles[]
       const detallesCobrados = (resDetalles.data ?? []) as unknown as Array<
-        VentaConDetalles['detalles_venta'][number] & { ventas: Venta }
+        VentaConDetalles['detalles_venta'][number] & { ventas: VentaConDetalles }
       >
 
-      // Unificación: fusionar los ítems cobrados en sus ventas padre (sin duplicar)
+      // Unificación: el Query 2 ahora anida la venta padre con TODOS sus detalles,
+      // así que basta con incorporarla íntegra al mapa (sin duplicar) cuando aún no está.
       const mapa = new Map<number, VentaConDetalles>()
       for (const v of ventasDirectas) mapa.set(v.id_venta, v)
       for (const detRaw of detallesCobrados) {
-        if (!detRaw.ventas) continue
-        const { ventas: ventaPadre, ...detalle } = detRaw
-        const existente = mapa.get(ventaPadre.id_venta)
-        if (existente) {
-          if (!existente.detalles_venta.some((d) => d.id_detalle === detalle.id_detalle)) {
-            existente.detalles_venta.push(detalle)
-          }
-        } else {
-          mapa.set(ventaPadre.id_venta, {
-            ...ventaPadre,
-            detalles_venta: [detalle],
-          })
+        const ventaPadre = detRaw.ventas
+        if (ventaPadre && !mapa.has(ventaPadre.id_venta)) {
+          mapa.set(ventaPadre.id_venta, ventaPadre)
         }
       }
 
@@ -126,7 +300,7 @@ export function Reportes() {
     }
 
     fetchData()
-  }, [fechaInicio, fechaFin])
+  }, [fechaInicio, fechaFin, refreshKey])
 
   useEffect(() => {
     supabase
@@ -164,6 +338,7 @@ export function Reportes() {
       precioUnitario: number
       montoEfectivo: number
       montoTransferencia: number
+      ventaOriginal: VentaConDetalles
     }
 
     const tx: Tx[] = []
@@ -220,6 +395,7 @@ export function Reportes() {
           precioUnitario: det.precio_unitario,
           montoEfectivo: montoEfectivoVenta * proporcion,
           montoTransferencia: montoTransferenciaVenta * proporcion,
+          ventaOriginal: v,
         })
       }
     }
@@ -254,6 +430,7 @@ export function Reportes() {
           precioUnitario: det.precio_unitario,
           montoEfectivo: montoEfectivoItem,
           montoTransferencia: montoTransferenciaItem,
+          ventaOriginal: v,
         })
       }
     }
@@ -276,6 +453,7 @@ export function Reportes() {
         precioUnitario: t.precioUnitario,
         montoEfectivo: t.montoEfectivo,
         montoTransferencia: t.montoTransferencia,
+        ventaOriginal: t.ventaOriginal,
       }))
 
     return resultado
@@ -307,13 +485,17 @@ export function Reportes() {
         if (v.metodo_pago === 'Transferencia') montoTransferenciaVenta = parseFloat(String(v.total ?? 0) || '0')
       }
 
-      ingresosTotales += parseFloat(String(v.total ?? 0) || '0')
-      efectivoCaja += montoEfectivoVenta
+      // Ajuste contable: restar devoluciones (se asume que el reembolso sale del efectivo en caja).
+      const montoDevuelto = parseFloat(String(v.monto_devuelto ?? 0) || '0')
+
+      ingresosTotales += parseFloat(String(v.total ?? 0) || '0') - montoDevuelto
+      efectivoCaja += montoEfectivoVenta - montoDevuelto
       totalTransferencias += montoTransferenciaVenta
     }
 
     // 2. Cobros diferidos del período: por ítem liquidado (una sola vez cada uno).
     for (const v of ventas) {
+      let contoAlgunItem = false
       for (const det of v.detalles_venta) {
         if (det.estado_item !== 'Liquidado' || !enRango(det.fecha_pago_item)) continue
 
@@ -329,6 +511,13 @@ export function Reportes() {
         ingresosTotales += det.subtotal
         efectivoCaja += montoEfectivoItem
         totalTransferencias += montoTransferenciaItem
+        contoAlgunItem = true
+      }
+      // Restar devoluciones una sola vez por venta (el reembolso sale del efectivo).
+      if (contoAlgunItem) {
+        const montoDevuelto = parseFloat(String(v.monto_devuelto ?? 0) || '0')
+        ingresosTotales -= montoDevuelto
+        efectivoCaja -= montoDevuelto
       }
     }
 
@@ -560,7 +749,7 @@ export function Reportes() {
                     <th className="text-center px-5 py-3 font-medium w-24">PAGO</th>
                     <th className="text-left px-5 py-3 font-medium">FECHA DE COBRO</th>
                     <th className="text-right px-5 py-3 font-medium w-28">TOTAL</th>
-                    <th className="text-center px-5 py-3 font-medium w-24">ACCIONES</th>
+                    <th className="text-center px-5 py-3 font-medium w-40">ACCIONES</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -589,29 +778,30 @@ export function Reportes() {
                         $ {fila.total.toFixed(2)}
                       </td>
                       <td className="px-5 py-3 text-center">
-                        <button
-                          onClick={() =>
-                            generarReciboVenta({
-                              tituloDocumento: 'COMPROBANTE DE PAGO',
-                              nombreCliente: fila.alias,
-                              fecha: fila.fechaCobro ?? fila.fecha,
-                              detallesRepuesto: [
-                                {
-                                  categoria: fila.categoria,
-                                  marca: fila.marca,
-                                  modelo: fila.modelo,
-                                  cantidad: fila.cantidad,
-                                  precioUnitario: fila.precioUnitario,
-                                  subtotal: fila.total,
-                                },
-                              ],
-                              total: fila.total,
-                            })
-                          }
-                          className="text-xs font-medium text-blue-600 hover:text-blue-800 hover:underline transition-colors cursor-pointer"
-                        >
-                          Ver PDF
-                        </button>
+                        <div className="flex items-center justify-center gap-2">
+                          <button
+                            onClick={() =>
+                              generarReciboVenta({
+                                tituloDocumento: 'COMPROBANTE DE PAGO',
+                                nombreCliente: fila.alias,
+                                fecha: fila.fechaCobro ?? fila.fecha,
+                                detallesRepuesto: detallesParaRecibo(fila.ventaOriginal),
+                                total: fila.ventaOriginal.total,
+                              })
+                            }
+                            className="text-xs font-medium text-blue-600 hover:text-blue-800 hover:underline transition-colors cursor-pointer"
+                          >
+                            Ver PDF
+                          </button>
+                          {isAdmin && (
+                            <button
+                              onClick={() => setDevolviendo(fila.ventaOriginal)}
+                              className="text-xs font-medium text-red-600 border border-red-300 rounded-lg px-2 py-1 hover:bg-red-50 transition-colors cursor-pointer whitespace-nowrap"
+                            >
+                              Devolución
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -647,7 +837,7 @@ export function Reportes() {
                   <th className="text-center px-5 py-3 font-medium w-20">CANT</th>
                   <th className="text-center px-5 py-3 font-medium w-24">PAGO</th>
                   <th className="text-right px-5 py-3 font-medium w-28">TOTAL</th>
-                  <th className="text-center px-5 py-3 font-medium w-24">ACCIONES</th>
+                  <th className="text-center px-5 py-3 font-medium w-40">ACCIONES</th>
                 </tr>
               </thead>
               <tbody>
@@ -674,34 +864,35 @@ export function Reportes() {
                       $ {fila.total.toFixed(2)}
                     </td>
                     <td className="px-5 py-3 text-center">
-                      <button
-                        onClick={() =>
-                          generarReciboVenta({
-                            tituloDocumento:
-                              fila.fechaCobro
-                                ? 'COMPROBANTE DE PAGO'
-                                : fila.estadoPago === 'Fiado' || fila.estadoPago === 'A Prueba'
-                                  ? 'COMPROBANTE DE CRÉDITO'
-                                  : 'COMPROBANTE DE VENTA',
-                            nombreCliente: fila.alias,
-                            fecha: fila.fecha,
-                            detallesRepuesto: [
-                              {
-                                categoria: fila.categoria,
-                                marca: fila.marca,
-                                modelo: fila.modelo,
-                                cantidad: fila.cantidad,
-                                precioUnitario: fila.precioUnitario,
-                                subtotal: fila.total,
-                              },
-                            ],
-                            total: fila.total,
-                          })
-                        }
-                        className="text-xs font-medium text-blue-600 hover:text-blue-800 hover:underline transition-colors cursor-pointer"
-                      >
-                        Ver PDF
-                      </button>
+                      <div className="flex items-center justify-center gap-2">
+                        <button
+                          onClick={() =>
+                            generarReciboVenta({
+                              tituloDocumento:
+                                fila.fechaCobro
+                                  ? 'COMPROBANTE DE PAGO'
+                                  : fila.estadoPago === 'Fiado' || fila.estadoPago === 'A Prueba'
+                                    ? 'COMPROBANTE DE CRÉDITO'
+                                    : 'COMPROBANTE DE VENTA',
+                              nombreCliente: fila.alias,
+                              fecha: fila.fecha,
+                              detallesRepuesto: detallesParaRecibo(fila.ventaOriginal),
+                              total: fila.ventaOriginal.total,
+                            })
+                          }
+                          className="text-xs font-medium text-blue-600 hover:text-blue-800 hover:underline transition-colors cursor-pointer"
+                        >
+                          Ver PDF
+                        </button>
+                        {isAdmin && (
+                          <button
+                            onClick={() => setDevolviendo(fila.ventaOriginal)}
+                            className="text-xs font-medium text-red-600 border border-red-300 rounded-lg px-2 py-1 hover:bg-red-50 transition-colors cursor-pointer whitespace-nowrap"
+                          >
+                            Devolución
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -712,6 +903,17 @@ export function Reportes() {
           </>
         )}
       </div>
+
+      {devolviendo && (
+        <ModalDevolucion
+          venta={devolviendo}
+          onClose={() => setDevolviendo(null)}
+          onSuccess={() => {
+            setDevolviendo(null)
+            setRefreshKey((k) => k + 1)
+          }}
+        />
+      )}
     </section>
   )
 }

@@ -628,7 +628,7 @@ export function CuentasPorCobrar() {
           No se encontraron deudas para este técnico.
         </div>
       ) : (
-        <div className="space-y-3">
+        <div className="space-y-3 max-h-[70vh] overflow-y-auto pr-2 shadow-sm rounded-lg">
           {gruposFiltrados.map((grupo) => {
             const abierto = clienteAbierto === grupo.cliente
             return (
