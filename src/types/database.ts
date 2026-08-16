@@ -65,6 +65,7 @@ export interface RepuestoConRelaciones extends Repuesto {
 export interface Venta {
   id_venta: number
   alias_tecnico: string
+  id_cliente?: number | null
   estado_pago: EstadoPago
   metodo_pago: MetodoPago | null
   total: number
@@ -74,7 +75,8 @@ export interface Venta {
   fecha_cobro?: string | null
   monto_efectivo?: number | null
   monto_transferencia?: number | null
-  monto_devuelto?: number | null
+  monto_devuelto_efectivo?: number | null
+  monto_devuelto_transferencia?: number | null
 }
 
 export interface DetalleVenta {
@@ -90,7 +92,7 @@ export interface DetalleVenta {
   referencia_item?: string | null
   monto_efectivo_item?: number | null
   monto_transferencia_item?: number | null
-  devuelto?: boolean
+  cantidad_devuelta?: number
 }
 
 export interface DetalleVentaConRepuesto extends DetalleVenta {

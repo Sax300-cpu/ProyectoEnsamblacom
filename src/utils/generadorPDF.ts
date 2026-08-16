@@ -132,6 +132,9 @@ export interface FilaReporteInput {
   metodoPago: string
   montoEfectivo?: number
   montoTransferencia?: number
+  cantidadDevuelta?: number
+  montoDevueltoEfectivo?: number
+  montoDevueltoTransferencia?: number
 }
 
 function agruparParaReporte(datos: FilaReporteInput[]): FilaReporteInput[] {
@@ -145,6 +148,11 @@ function agruparParaReporte(datos: FilaReporteInput[]): FilaReporteInput[] {
       existente.montoEfectivo = (existente.montoEfectivo ?? 0) + (fila.montoEfectivo ?? 0)
       existente.montoTransferencia =
         (existente.montoTransferencia ?? 0) + (fila.montoTransferencia ?? 0)
+      existente.cantidadDevuelta = (existente.cantidadDevuelta ?? 0) + (fila.cantidadDevuelta ?? 0)
+      existente.montoDevueltoEfectivo =
+        (existente.montoDevueltoEfectivo ?? 0) + (fila.montoDevueltoEfectivo ?? 0)
+      existente.montoDevueltoTransferencia =
+        (existente.montoDevueltoTransferencia ?? 0) + (fila.montoDevueltoTransferencia ?? 0)
     } else {
       mapa.set(llave, { ...fila })
     }
@@ -205,15 +213,19 @@ export function generarReportePeriodoPDF(
   let granTotal = 0
 
   for (const fila of agrupadas) {
-    granTotal += fila.total
-    totalEfectivo += fila.montoEfectivo ?? 0
-    totalTransferencia += fila.montoTransferencia ?? 0
+    const devueltoEfectivo = fila.montoDevueltoEfectivo ?? 0
+    const devueltoTransferencia = fila.montoDevueltoTransferencia ?? 0
+    granTotal += fila.total - devueltoEfectivo - devueltoTransferencia
+    totalEfectivo += (fila.montoEfectivo ?? 0) - devueltoEfectivo
+    totalTransferencia += (fila.montoTransferencia ?? 0) - devueltoTransferencia
   }
 
   const cuerpo = agrupadas.map((fila) => [
     fila.categoria,
     fila.marca,
-    fila.modelo,
+    fila.cantidadDevuelta
+      ? `${fila.modelo} (Devuelto: ${fila.cantidadDevuelta})`
+      : fila.modelo,
     fila.cantidad.toString(),
     fila.metodoPago,
     `$ ${fila.total.toFixed(2)}`,

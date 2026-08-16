@@ -6,7 +6,6 @@ import { generarReciboVenta } from '../utils/generadorPDF'
 import type { EstadoPago, MetodoPago } from '../types/database'
 
 interface ClienteOption {
-  id_cliente: number
   nombre: string
 }
 
@@ -31,7 +30,7 @@ export function CartDrawer({ onVentaExitosa }: CartDrawerProps) {
     if (!isOpen) return
     supabase
       .from('clientes')
-      .select('id_cliente, nombre')
+      .select('nombre')
       .order('nombre', { ascending: true })
       .then(({ data }) => {
         if (data) setClientes(data as ClienteOption[])
@@ -64,23 +63,31 @@ export function CartDrawer({ onVentaExitosa }: CartDrawerProps) {
     const nombreAlias = alias.trim()
 
     try {
-      /* ───── Paso 0: Buscar o crear cliente ───── */
-      const existente = clientes.find(
-        (c) => c.nombre.toLowerCase() === nombreAlias.toLowerCase(),
-      )
-      let idCliente: number | null = existente?.id_cliente ?? null
+      /* ───── Paso 0: Buscar o crear cliente (resolver id_cliente ANTES de la venta) ───── */
+      const buscarOCrearCliente = async (nombre: string): Promise<number> => {
+        const { data: existentes, error: errFind } = await supabase
+          .from('clientes')
+          .select('id_cliente')
+          .ilike('nombre', nombre)
+          .limit(1)
 
-      if (!existente) {
+        if (errFind) throw new Error(errFind.message)
+        if (existentes && existentes.length > 0) return existentes[0].id_cliente
+
         const { data: nuevo, error: errC } = await supabase
           .from('clientes')
-          .insert({ nombre: nombreAlias })
+          .insert({ nombre })
           .select('id_cliente')
           .single()
 
         if (errC) throw new Error(errC.message)
-        idCliente = nuevo.id_cliente
-        setClientes((prev) => [...prev, { id_cliente: idCliente!, nombre: nombreAlias }])
+        if (!nuevo?.id_cliente) throw new Error('No se pudo crear el cliente')
+
+        setClientes((prev) => [...prev, { nombre }])
+        return nuevo.id_cliente
       }
+
+      const idCliente = await buscarOCrearCliente(nombreAlias)
 
       /* ───── Paso A: Insertar venta ───── */
       const montos =
@@ -94,6 +101,7 @@ export function CartDrawer({ onVentaExitosa }: CartDrawerProps) {
 
       const ventaPayload: Record<string, unknown> = {
         alias_tecnico: nombreAlias,
+        id_cliente: idCliente,
         estado_pago: estado,
         metodo_pago: metodoPago,
         total,
@@ -101,7 +109,6 @@ export function CartDrawer({ onVentaExitosa }: CartDrawerProps) {
         numero_comprobante: (esTransferencia || esMixto) ? nroComprobante.trim() : null,
         ...montos,
       }
-      if (idCliente) ventaPayload.id_cliente = idCliente
 
       const { data: venta, error: errV } = await supabase
         .from('ventas')
@@ -296,11 +303,12 @@ export function CartDrawer({ onVentaExitosa }: CartDrawerProps) {
                 value={alias}
                 onChange={(e) => setAlias(e.target.value)}
                 list="lista-clientes"
-                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                autoComplete="off"
+                className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
               />
               <datalist id="lista-clientes">
-                {clientes.map((c) => (
-                  <option key={c.id_cliente} value={c.nombre} />
+                {clientes.map((c, i) => (
+                  <option key={i} value={c.nombre} />
                 ))}
               </datalist>
 

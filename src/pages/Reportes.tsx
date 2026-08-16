@@ -28,6 +28,9 @@ interface FilaVenta {
   montoEfectivo: number
   montoTransferencia: number
   ventaOriginal: VentaConDetalles
+  cantidadDevuelta: number
+  montoDevueltoEfectivo: number
+  montoDevueltoTransferencia: number
 }
 
 interface TopItem {
@@ -61,41 +64,50 @@ function ModalDevolucion({
   onClose: () => void
   onSuccess: () => void
 }) {
-  const [seleccion, setSeleccion] = useState<Set<number>>(new Set())
+  const [cantidades, setCantidades] = useState<Record<number, number>>({})
+  const [reembolsoEfectivo, setReembolsoEfectivo] = useState('')
+  const [reembolsoTransferencia, setReembolsoTransferencia] = useState('')
   const [enviando, setEnviando] = useState(false)
 
   const detalles = venta.detalles_venta
-  const seleccionados = detalles.filter((d) => seleccion.has(d.id_detalle))
-  const totalDevolver = seleccionados.reduce((sum, d) => sum + d.subtotal, 0)
+  const itemsSeleccionados = detalles.filter((d) => (cantidades[d.id_detalle] ?? 0) > 0)
+  const totalDevolver = itemsSeleccionados.reduce(
+    (sum, d) => sum + (cantidades[d.id_detalle] ?? 0) * d.precio_unitario,
+    0,
+  )
+  const reembolsoValido =
+    Math.round((Number(reembolsoEfectivo) + Number(reembolsoTransferencia)) * 100) ===
+    Math.round(totalDevolver * 100)
 
-  const toggle = (id: number) => {
-    setSeleccion((prev) => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
+  const setCantidad = (id: number, max: number, valor: number) => {
+    const v = Math.min(max, Math.max(0, valor))
+    setCantidades((prev) => ({ ...prev, [id]: v }))
   }
 
   const handleConfirm = async () => {
-    if (seleccionados.length === 0) return
+    if (itemsSeleccionados.length === 0 || !reembolsoValido) return
     setEnviando(true)
     try {
-      const ids = seleccionados.map((d) => d.id_detalle)
+      const montoEfectivo = Number(reembolsoEfectivo) || 0
+      const montoTransferencia = Number(reembolsoTransferencia) || 0
 
-      // a) Marcar los ítems seleccionados como devueltos.
-      const { error: errDet } = await supabase
-        .from('detalles_venta')
-        .update({ devuelto: true })
-        .in('id_detalle', ids)
-      if (errDet) throw errDet
+      // a) Incrementar cantidad_devuelta por cada ítem seleccionado.
+      for (const d of itemsSeleccionados) {
+        const cantidad = cantidades[d.id_detalle] ?? 0
+        const { error: errDet } = await supabase
+          .from('detalles_venta')
+          .update({ cantidad_devuelta: (d.cantidad_devuelta ?? 0) + cantidad })
+          .eq('id_detalle', d.id_detalle)
+        if (errDet) throw errDet
+      }
 
       // b) Reponer stock, agrupando por repuesto para no escribir dos veces el mismo.
       const cantidadPorRepuesto = new Map<number, number>()
-      for (const d of seleccionados) {
+      for (const d of itemsSeleccionados) {
+        const cantidad = cantidades[d.id_detalle] ?? 0
         cantidadPorRepuesto.set(
           d.id_repuesto,
-          (cantidadPorRepuesto.get(d.id_repuesto) ?? 0) + d.cantidad,
+          (cantidadPorRepuesto.get(d.id_repuesto) ?? 0) + cantidad,
         )
       }
       for (const [idRepuesto, cantidad] of cantidadPorRepuesto) {
@@ -112,16 +124,20 @@ function ModalDevolucion({
         if (errStock) throw errStock
       }
 
-      // c) Incrementar el monto_devuelto acumulado de la venta.
+      // c) Sumar los montos devueltos según el origen elegido.
       const { data: ventaRow, error: errVenta } = await supabase
         .from('ventas')
-        .select('monto_devuelto')
+        .select('monto_devuelto_efectivo, monto_devuelto_transferencia')
         .eq('id_venta', venta.id_venta)
         .single()
       if (errVenta) throw errVenta
       const { error: errMonto } = await supabase
         .from('ventas')
-        .update({ monto_devuelto: (ventaRow?.monto_devuelto ?? 0) + totalDevolver })
+        .update({
+          monto_devuelto_efectivo: (ventaRow?.monto_devuelto_efectivo ?? 0) + montoEfectivo,
+          monto_devuelto_transferencia:
+            (ventaRow?.monto_devuelto_transferencia ?? 0) + montoTransferencia,
+        })
         .eq('id_venta', venta.id_venta)
       if (errMonto) throw errMonto
 
@@ -150,48 +166,100 @@ function ModalDevolucion({
 
         <div className="rounded-lg border border-slate-200 divide-y divide-slate-100 max-h-60 overflow-y-auto">
           {detalles.map((det) => {
-            const yaDevuelto = det.devuelto === true
+            const devueltoPrevio = det.cantidad_devuelta ?? 0
+            const maxDevolver = det.cantidad - devueltoPrevio
+            const agotado = maxDevolver <= 0
             const categoria = det.repuestos.categorias?.nombre ?? '—'
             const marca = det.repuestos.modelos?.marcas?.nombre ?? '—'
             const modelo = det.repuestos.modelos?.nombre ?? '—'
             return (
-              <label
+              <div
                 key={det.id_detalle}
-                className={`flex items-center gap-3 px-3 py-2 ${
-                  yaDevuelto ? 'opacity-60' : 'cursor-pointer hover:bg-slate-50'
-                }`}
+                className={`px-3 py-2 ${agotado ? 'opacity-60' : ''}`}
               >
-                <input
-                  type="checkbox"
-                  checked={seleccion.has(det.id_detalle)}
-                  disabled={yaDevuelto || enviando}
-                  onChange={() => toggle(det.id_detalle)}
-                  className="h-4 w-4 rounded border-slate-300 text-red-600 focus:ring-red-500 cursor-pointer disabled:cursor-not-allowed"
-                />
-                <span className="flex-1 truncate text-sm text-slate-700">
-                  {det.cantidad}x {categoria} {marca} {modelo}
-                </span>
-                {yaDevuelto && (
-                  <span className="rounded-full bg-emerald-100 text-emerald-700 px-2 py-0.5 text-xs font-semibold whitespace-nowrap">
-                    Devuelto
+                <div className="flex items-center gap-2">
+                  <span className="flex-1 truncate text-sm text-slate-700">
+                    {det.cantidad}x {categoria} {marca} {modelo}
                   </span>
-                )}
-                <span className="font-semibold text-slate-800 whitespace-nowrap text-sm">
-                  $ {det.subtotal.toFixed(2)}
-                </span>
-              </label>
+                  <span className="text-xs text-slate-500 whitespace-nowrap">
+                    $ {det.precio_unitario.toFixed(2)} c/u
+                  </span>
+                </div>
+                <div className="flex items-center gap-2 mt-1">
+                  {devueltoPrevio > 0 && (
+                    <span className="text-xs text-slate-500">Ya devuelto: {devueltoPrevio}</span>
+                  )}
+                  {agotado ? (
+                    <span className="ml-auto rounded-full bg-emerald-100 text-emerald-700 px-2 py-0.5 text-xs font-semibold whitespace-nowrap">
+                      Devuelto
+                    </span>
+                  ) : (
+                    <label className="ml-auto flex items-center gap-1 text-xs text-slate-500">
+                      Devolver
+                      <input
+                        type="number"
+                        min={0}
+                        max={maxDevolver}
+                        value={cantidades[det.id_detalle] ?? 0}
+                        disabled={enviando}
+                        onChange={(e) =>
+                          setCantidad(det.id_detalle, maxDevolver, Number(e.target.value) || 0)
+                        }
+                        className="w-16 rounded-lg border border-slate-300 px-2 py-1 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-red-500 disabled:opacity-50"
+                      />
+                    </label>
+                  )}
+                </div>
+              </div>
             )
           })}
         </div>
 
         <div className="flex items-center justify-between text-sm">
           <span className="font-medium text-slate-700">
-            Total a devolver ({seleccionados.length} ítem{seleccionados.length === 1 ? '' : 's'})
+            Total a devolver ({itemsSeleccionados.length} ítem
+            {itemsSeleccionados.length === 1 ? '' : 's'})
           </span>
           <span className="text-base font-bold text-red-600 font-mono">
             $ {totalDevolver.toFixed(2)}
           </span>
         </div>
+
+        <div className="grid grid-cols-2 gap-2">
+          <div className="space-y-1">
+            <label className="block text-xs font-medium text-slate-600">
+              Reembolsar de Efectivo ($)
+            </label>
+            <input
+              type="number"
+              min={0}
+              step="0.01"
+              value={reembolsoEfectivo}
+              disabled={enviando}
+              onChange={(e) => setReembolsoEfectivo(e.target.value)}
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-500 disabled:opacity-50"
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="block text-xs font-medium text-slate-600">
+              Reembolsar de Transferencia ($)
+            </label>
+            <input
+              type="number"
+              min={0}
+              step="0.01"
+              value={reembolsoTransferencia}
+              disabled={enviando}
+              onChange={(e) => setReembolsoTransferencia(e.target.value)}
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-500 disabled:opacity-50"
+            />
+          </div>
+        </div>
+        {!reembolsoValido && totalDevolver > 0 && (
+          <p className="text-xs text-red-600">
+            La suma de Efectivo + Transferencia debe ser $ {totalDevolver.toFixed(2)}
+          </p>
+        )}
 
         <div className="flex justify-end gap-3 pt-1">
           <button
@@ -203,7 +271,7 @@ function ModalDevolucion({
           </button>
           <button
             onClick={handleConfirm}
-            disabled={enviando || seleccionados.length === 0}
+            disabled={enviando || itemsSeleccionados.length === 0 || !reembolsoValido}
             className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50 transition-colors cursor-pointer"
           >
             {enviando ? 'Procesando…' : `Devolver $ ${totalDevolver.toFixed(2)}`}
@@ -305,11 +373,15 @@ export function Reportes() {
   useEffect(() => {
     supabase
       .from('ventas')
-      .select('total')
+      .select('total, monto_devuelto_efectivo, monto_devuelto_transferencia')
       .in('estado_pago', ['Fiado', 'A Prueba'])
       .then(({ data }) => {
         const total = (data ?? []).reduce(
-          (sum, v) => sum + parseFloat(String(v.total ?? 0) || '0'),
+          (sum, v) =>
+            sum +
+            parseFloat(String(v.total ?? 0) || '0') -
+            (parseFloat(String(v.monto_devuelto_efectivo ?? 0) || '0') +
+              parseFloat(String(v.monto_devuelto_transferencia ?? 0) || '0')),
           0,
         )
         setDeudaGlobal(total)
@@ -339,6 +411,9 @@ export function Reportes() {
       montoEfectivo: number
       montoTransferencia: number
       ventaOriginal: VentaConDetalles
+      cantidadDevuelta: number
+      montoDevueltoEfectivo: number
+      montoDevueltoTransferencia: number
     }
 
     const tx: Tx[] = []
@@ -374,6 +449,12 @@ export function Reportes() {
         if (v.metodo_pago === 'Transferencia') montoTransferenciaVenta = parseFloat(String(v.total ?? 0) || '0')
       }
 
+      // Devoluciones de la venta (se reparten proporcionalmente entre sus ítems).
+      const montoDevueltoEfectivoVenta = parseFloat(String(v.monto_devuelto_efectivo ?? 0) || '0')
+      const montoDevueltoTransferenciaVenta = parseFloat(
+        String(v.monto_devuelto_transferencia ?? 0) || '0',
+      )
+
       for (const det of v.detalles_venta) {
         const subtotalDetalle = det.subtotal ?? det.precio_unitario * det.cantidad
         const proporcion =
@@ -396,14 +477,30 @@ export function Reportes() {
           montoEfectivo: montoEfectivoVenta * proporcion,
           montoTransferencia: montoTransferenciaVenta * proporcion,
           ventaOriginal: v,
+          cantidadDevuelta: det.cantidad_devuelta ?? 0,
+          montoDevueltoEfectivo: montoDevueltoEfectivoVenta * proporcion,
+          montoDevueltoTransferencia: montoDevueltoTransferenciaVenta * proporcion,
         })
       }
     }
 
-    // Query 2 — Cobros diferidos: ítems liquidados (una fila por ítem, monto = detalle.subtotal)
+    // Query 2 — Cobros diferidos: ítems liquidados (una fila por ítem, monto = detalle.subtotal).
+    // Las devoluciones de la venta se reparten proporcionalmente entre sus ítems liquidados.
     for (const v of ventas) {
-      for (const det of v.detalles_venta) {
-        if (det.estado_item !== 'Liquidado' || !enRango(det.fecha_pago_item)) continue
+      const itemsLiquidados = v.detalles_venta.filter(
+        (det) => det.estado_item === 'Liquidado' && enRango(det.fecha_pago_item),
+      )
+      if (itemsLiquidados.length === 0) continue
+
+      const sumaLiquidados = itemsLiquidados.reduce((sum, det) => sum + det.subtotal, 0)
+      const montoDevueltoEfectivoVenta = parseFloat(String(v.monto_devuelto_efectivo ?? 0) || '0')
+      const montoDevueltoTransferenciaVenta = parseFloat(
+        String(v.monto_devuelto_transferencia ?? 0) || '0',
+      )
+
+      for (const det of itemsLiquidados) {
+        const proporcion =
+          sumaLiquidados > 0 ? det.subtotal / sumaLiquidados : 1 / itemsLiquidados.length
 
         let montoEfectivoItem = parseFloat(String(det.monto_efectivo_item ?? 0) || '0')
         let montoTransferenciaItem = parseFloat(String(det.monto_transferencia_item ?? 0) || '0')
@@ -431,6 +528,9 @@ export function Reportes() {
           montoEfectivo: montoEfectivoItem,
           montoTransferencia: montoTransferenciaItem,
           ventaOriginal: v,
+          cantidadDevuelta: det.cantidad_devuelta ?? 0,
+          montoDevueltoEfectivo: montoDevueltoEfectivoVenta * proporcion,
+          montoDevueltoTransferencia: montoDevueltoTransferenciaVenta * proporcion,
         })
       }
     }
@@ -454,6 +554,9 @@ export function Reportes() {
         montoEfectivo: t.montoEfectivo,
         montoTransferencia: t.montoTransferencia,
         ventaOriginal: t.ventaOriginal,
+        cantidadDevuelta: t.cantidadDevuelta,
+        montoDevueltoEfectivo: t.montoDevueltoEfectivo,
+        montoDevueltoTransferencia: t.montoDevueltoTransferencia,
       }))
 
     return resultado
@@ -485,12 +588,18 @@ export function Reportes() {
         if (v.metodo_pago === 'Transferencia') montoTransferenciaVenta = parseFloat(String(v.total ?? 0) || '0')
       }
 
-      // Ajuste contable: restar devoluciones (se asume que el reembolso sale del efectivo en caja).
-      const montoDevuelto = parseFloat(String(v.monto_devuelto ?? 0) || '0')
+      // Ajuste contable: restar devoluciones por método de origen (evita saldos
+      // negativos en caja al devolver ventas que fueron por transferencia).
+      const montoDevueltoEfectivo = parseFloat(String(v.monto_devuelto_efectivo ?? 0) || '0')
+      const montoDevueltoTransferencia = parseFloat(
+        String(v.monto_devuelto_transferencia ?? 0) || '0',
+      )
 
-      ingresosTotales += parseFloat(String(v.total ?? 0) || '0') - montoDevuelto
-      efectivoCaja += montoEfectivoVenta - montoDevuelto
-      totalTransferencias += montoTransferenciaVenta
+      ingresosTotales +=
+        parseFloat(String(v.total ?? 0) || '0') -
+        (montoDevueltoEfectivo + montoDevueltoTransferencia)
+      efectivoCaja += montoEfectivoVenta - montoDevueltoEfectivo
+      totalTransferencias += montoTransferenciaVenta - montoDevueltoTransferencia
     }
 
     // 2. Cobros diferidos del período: por ítem liquidado (una sola vez cada uno).
@@ -513,11 +622,15 @@ export function Reportes() {
         totalTransferencias += montoTransferenciaItem
         contoAlgunItem = true
       }
-      // Restar devoluciones una sola vez por venta (el reembolso sale del efectivo).
+      // Restar devoluciones una sola vez por venta, por método de origen.
       if (contoAlgunItem) {
-        const montoDevuelto = parseFloat(String(v.monto_devuelto ?? 0) || '0')
-        ingresosTotales -= montoDevuelto
-        efectivoCaja -= montoDevuelto
+        const montoDevueltoEfectivo = parseFloat(String(v.monto_devuelto_efectivo ?? 0) || '0')
+        const montoDevueltoTransferencia = parseFloat(
+          String(v.monto_devuelto_transferencia ?? 0) || '0',
+        )
+        ingresosTotales -= montoDevueltoEfectivo + montoDevueltoTransferencia
+        efectivoCaja -= montoDevueltoEfectivo
+        totalTransferencias -= montoDevueltoTransferencia
       }
     }
 
@@ -601,7 +714,23 @@ export function Reportes() {
           </label>
           <button
             onClick={() =>
-              generarReportePeriodoPDF(transaccionesDelPeriodo, fechaInicio, fechaFin)
+              generarReportePeriodoPDF(
+                transaccionesDelPeriodo.map((t) => ({
+                  categoria: t.categoria,
+                  marca: t.marca,
+                  modelo: t.modelo,
+                  cantidad: t.cantidad,
+                  total: t.total,
+                  metodoPago: t.metodoPago,
+                  montoEfectivo: t.montoEfectivo,
+                  montoTransferencia: t.montoTransferencia,
+                  cantidadDevuelta: t.cantidadDevuelta,
+                  montoDevueltoEfectivo: t.montoDevueltoEfectivo,
+                  montoDevueltoTransferencia: t.montoDevueltoTransferencia,
+                })),
+                fechaInicio,
+                fechaFin,
+              )
             }
             disabled={transaccionesDelPeriodo.length === 0}
             className="flex items-center gap-2 rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-50 transition-colors cursor-pointer"
@@ -763,6 +892,11 @@ export function Reportes() {
                       <td className="px-5 py-3 text-slate-700">{fila.categoria}</td>
                       <td className="px-5 py-3 font-medium text-slate-800">
                         {fila.marca} {fila.modelo}
+                        {fila.cantidadDevuelta > 0 && (
+                          <span className="ml-2 inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">
+                            Devuelto: {fila.cantidadDevuelta}
+                          </span>
+                        )}
                       </td>
                       <td className="px-5 py-3 text-center font-mono text-slate-700">{fila.cantidad}</td>
                       <td className="px-5 py-3 text-center text-slate-600">
@@ -850,6 +984,11 @@ export function Reportes() {
                     <td className="px-5 py-3 text-slate-700">{fila.categoria}</td>
                     <td className="px-5 py-3 font-medium text-slate-800">
                       {fila.marca} {fila.modelo}
+                      {fila.cantidadDevuelta > 0 && (
+                        <span className="ml-2 inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">
+                          Devuelto: {fila.cantidadDevuelta}
+                        </span>
+                      )}
                     </td>
                     <td className="px-5 py-3 text-center font-mono text-slate-700">{fila.cantidad}</td>
                     <td className="px-5 py-3 text-center text-slate-600">

@@ -45,7 +45,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
-  const isAdmin = user?.email === 'admin@ensambla.com'
+  const isAdmin = user?.email === 'admin@ensamblacom.com'
 
   const logout = useCallback(async () => {
     await supabase.auth.signOut()
