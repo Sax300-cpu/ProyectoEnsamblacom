@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import type { VentaConDetalles } from '../types/database'
 import { generarReciboVenta, generarReportePeriodoPDF } from '../utils/generadorPDF'
-import { formatearFechaComprobante } from '../lib/format'
+import { formatearFechaComprobante, formatearDetalles } from '../lib/format'
 import { useAuth } from '../contexts/AuthContext'
 import { toast } from '../components/Toaster'
 
@@ -172,14 +172,19 @@ function ModalDevolucion({
             const categoria = det.repuestos.categorias?.nombre ?? '—'
             const marca = det.repuestos.modelos?.marcas?.nombre ?? '—'
             const modelo = det.repuestos.modelos?.nombre ?? '—'
+            const extras = formatearDetalles(
+              det.repuestos.distribuidores?.nombre,
+              det.repuestos.atributos ?? {},
+            )
             return (
               <div
                 key={det.id_detalle}
                 className={`px-3 py-2 ${agotado ? 'opacity-60' : ''}`}
               >
-                <div className="flex items-center gap-2">
-                  <span className="flex-1 truncate text-sm text-slate-700">
+                <div className="flex items-start gap-2">
+                  <span className="flex-1 whitespace-normal break-words text-sm text-slate-700">
                     {det.cantidad}x {categoria} {marca} {modelo}
+                    {extras ? ` - ${extras}` : ''}
                   </span>
                   <span className="text-xs text-slate-500 whitespace-nowrap">
                     $ {det.precio_unitario.toFixed(2)} c/u
@@ -373,18 +378,18 @@ export function Reportes() {
   useEffect(() => {
     supabase
       .from('ventas')
-      .select('total, monto_devuelto_efectivo, monto_devuelto_transferencia')
+      .select('*, detalles_venta(*)')
       .in('estado_pago', ['Fiado', 'A Prueba'])
       .then(({ data }) => {
-        const total = (data ?? []).reduce(
-          (sum, v) =>
-            sum +
-            parseFloat(String(v.total ?? 0) || '0') -
-            (parseFloat(String(v.monto_devuelto_efectivo ?? 0) || '0') +
-              parseFloat(String(v.monto_devuelto_transferencia ?? 0) || '0')),
-          0,
-        )
-        setDeudaGlobal(total)
+        const ventas = (data ?? []) as unknown as VentaConDetalles[]
+        const sumaNeta = ventas.reduce((sum, v) => {
+          const pendiente = v.detalles_venta.reduce((acc, det) => {
+            if (det.estado_item === 'Liquidado' || det.estado_item === 'Devuelto') return acc
+            return acc + (det.cantidad - (det.cantidad_devuelta ?? 0)) * det.precio_unitario
+          }, 0)
+          return sum + pendiente
+        }, 0)
+        setDeudaGlobal(sumaNeta)
       })
   }, [])
 
@@ -920,7 +925,7 @@ export function Reportes() {
                                 nombreCliente: fila.alias,
                                 fecha: fila.fechaCobro ?? fila.fecha,
                                 detallesRepuesto: detallesParaRecibo(fila.ventaOriginal),
-                                total: fila.ventaOriginal.total,
+                                total: parseFloat(String(fila.ventaOriginal.total || 0)),
                               })
                             }
                             className="text-xs font-medium text-blue-600 hover:text-blue-800 hover:underline transition-colors cursor-pointer"
@@ -1016,7 +1021,7 @@ export function Reportes() {
                               nombreCliente: fila.alias,
                               fecha: fila.fecha,
                               detallesRepuesto: detallesParaRecibo(fila.ventaOriginal),
-                              total: fila.ventaOriginal.total,
+                              total: parseFloat(String(fila.ventaOriginal.total || 0)),
                             })
                           }
                           className="text-xs font-medium text-blue-600 hover:text-blue-800 hover:underline transition-colors cursor-pointer"

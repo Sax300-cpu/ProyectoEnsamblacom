@@ -261,26 +261,43 @@ function LiquidarLoteModal({
     try {
       const fechaPago = new Date().toISOString()
 
-      const montos =
-        metodo === 'Efectivo'
-          ? { monto_efectivo_item: totalLote, monto_transferencia_item: 0 }
-          : metodo === 'Transferencia'
-            ? { monto_efectivo_item: 0, monto_transferencia_item: totalLote }
-            : metodo === 'Mixto'
-              ? { monto_efectivo_item: Number(montoEfectivo) || 0, monto_transferencia_item: Number(montoTransferencia) || 0 }
-              : { monto_efectivo_item: 0, monto_transferencia_item: 0 }
+      const montoEfectivoTotal = metodo === 'Mixto' ? Number(montoEfectivo) || 0 : 0
+      const montoTransferenciaTotal = metodo === 'Mixto' ? Number(montoTransferencia) || 0 : 0
 
-      const { error: errDet } = await supabase
-        .from('detalles_venta')
-        .update({
-          estado_item: 'Liquidado',
-          fecha_pago_item: fechaPago,
-          metodo_pago_item: metodo,
-          referencia_item: referencia.trim() || null,
-          ...montos,
-        })
-        .in('id_detalle', ids)
-      if (errDet) throw errDet
+      // Monto individual por ítem (no el total del grupo) para no multiplicar ingresos.
+      const montosPorDetalle = new Map<number, { efectivo: number; transferencia: number }>()
+      for (const item of items) {
+        const det = item.detalle_enfocado
+        const proporcion = totalLote > 0 ? det.subtotal / totalLote : 1 / items.length
+        const efectivo =
+          metodo === 'Efectivo'
+            ? det.subtotal
+            : metodo === 'Transferencia'
+              ? 0
+              : montoEfectivoTotal * proporcion
+        const transferencia =
+          metodo === 'Transferencia'
+            ? det.subtotal
+            : metodo === 'Efectivo'
+              ? 0
+              : montoTransferenciaTotal * proporcion
+        montosPorDetalle.set(det.id_detalle, { efectivo, transferencia })
+      }
+
+      for (const [idDetalle, m] of montosPorDetalle) {
+        const { error: errDet } = await supabase
+          .from('detalles_venta')
+          .update({
+            estado_item: 'Liquidado',
+            fecha_pago_item: fechaPago,
+            metodo_pago_item: metodo,
+            referencia_item: referencia.trim() || null,
+            monto_efectivo_item: m.efectivo,
+            monto_transferencia_item: m.transferencia,
+          })
+          .eq('id_detalle', idDetalle)
+        if (errDet) throw errDet
+      }
 
       for (const idVenta of ventasAfectadas) {
         const venta = items.find((f) => f.id_venta === idVenta)!
@@ -299,12 +316,23 @@ function LiquidarLoteModal({
           ) / 100,
         )
 
+        const itemsVenta = items.filter((f) => f.id_venta === idVenta)
+        const montoEfectivoVenta = itemsVenta.reduce(
+          (sum, f) => sum + (montosPorDetalle.get(f.detalle_enfocado.id_detalle)?.efectivo ?? 0),
+          0,
+        )
+        const montoTransferenciaVenta = itemsVenta.reduce(
+          (sum, f) =>
+            sum + (montosPorDetalle.get(f.detalle_enfocado.id_detalle)?.transferencia ?? 0),
+          0,
+        )
+
         const updateVenta: Record<string, unknown> = {
           total: nuevoTotal,
           metodo_pago: metodo,
           numero_comprobante: (esTransferencia || esMixto) ? referencia.trim() : null,
-          monto_efectivo: montos.monto_efectivo_item,
-          monto_transferencia: montos.monto_transferencia_item,
+          monto_efectivo: montoEfectivoVenta,
+          monto_transferencia: montoTransferenciaVenta,
         }
         if (nuevoTotal <= 0) {
           updateVenta.estado_pago = 'Pagado'

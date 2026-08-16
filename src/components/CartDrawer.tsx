@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase'
 import { useCart } from '../contexts/CartContext'
 import { formatearDetalles } from '../lib/format'
 import { generarReciboVenta } from '../utils/generadorPDF'
+import { toast } from '../components/Toaster'
 import type { EstadoPago, MetodoPago } from '../types/database'
 
 interface ClienteOption {
@@ -52,12 +53,27 @@ export function CartDrawer({ onVentaExitosa }: CartDrawerProps) {
     Math.round((Number(montoEfectivo) + Number(montoTransferencia)) * 100) ===
     Math.round(total * 100)
   const confirmDisabled = items.length === 0 || !alias.trim() || enviando ||
-    ((esTransferencia || esMixto) && !nroComprobante.trim()) ||
-    (esMixto && !esMixtoValido)
+    ((esTransferencia || esMixto) && !nroComprobante.trim())
 
   const handleConfirm = async () => {
     if (items.length === 0) return
     if (confirmDisabled) return
+
+    // Validación estricta de montos (antes del insert a Supabase).
+    const montoTrans = Number(montoTransferencia) || 0
+    if (esTransferencia && montoTrans > total) {
+      toast.error(
+        `El monto de transferencia ($${montoTrans.toFixed(2)}) no puede superar el total del carrito ($${total.toFixed(2)}).`,
+      )
+      return
+    }
+    if (esMixto && !esMixtoValido) {
+      toast.error(
+        `La suma de Efectivo + Transferencia debe ser exactamente $${total.toFixed(2)}.`,
+      )
+      return
+    }
+
     setEnviando(true)
 
     const nombreAlias = alias.trim()
