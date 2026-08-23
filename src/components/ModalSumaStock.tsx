@@ -9,7 +9,7 @@ interface Props {
 }
 
 export function ModalSumaStock({ producto, onClose, onSuccess }: Props) {
-  const [cantidad, setCantidad] = useState(1)
+  const [cantidad, setCantidad] = useState(0)
   const [enviando, setEnviando] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -73,7 +73,7 @@ export function ModalSumaStock({ producto, onClose, onSuccess }: Props) {
             </label>
             <input
               type="number"
-              min={1}
+              min={0}
               value={cantidad}
               onChange={(e) => setCantidad(Number(e.target.value))}
               placeholder="Cantidad a ingresar"

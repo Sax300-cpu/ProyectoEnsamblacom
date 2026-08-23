@@ -124,7 +124,7 @@ export function ReponerStockModal({ open, onClose, repuestos }: Props) {
                   <div className="flex items-center gap-2 shrink-0">
                     <input
                       type="number"
-                      min="1"
+                      min="0"
                       value={cantidades[r.id_repuesto] ?? ''}
                       onChange={(e) =>
                         setCantidades((prev) => ({

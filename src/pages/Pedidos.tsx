@@ -1,287 +1,300 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
-import { useAuth } from '../contexts/AuthContext'
+import jsPDF from 'jspdf'
+import autoTable from 'jspdf-autotable'
 
-interface Pedido {
-  id_pedido: string
-  repuesto_texto: string
-  estado: string
-  fecha_registro: string
+interface RepuestoAgotado {
+  id_repuesto: number
+  stock: number
+  categorias: { nombre: string } | null
+  modelos: { nombre: string; marcas: { nombre: string } } | null
+  atributos: Record<string, unknown> | null
 }
 
-const ESTADOS = ['Pendiente', 'Comprado', 'En camino']
+function detalleDe(r: RepuestoAgotado): string {
+  const modelo = r.modelos?.nombre ?? ''
+  const atributos = r.atributos ?? {}
+  const calidad = typeof atributos.calidad === 'string' ? atributos.calidad : ''
+  const color = typeof atributos.color === 'string' ? atributos.color : ''
+  return [modelo, calidad, color].filter(Boolean).join(' - ') || '—'
+}
+
+const NOTAS_KEY = 'pedidos_notas'
 
 export function Pedidos() {
-  const { isAdmin } = useAuth()
-  const [pedidos, setPedidos] = useState<Pedido[]>([])
+  const [repuestosAgotados, setRepuestosAgotados] = useState<RepuestoAgotado[]>([])
+  const [cantidadesPedido, setCantidadesPedido] = useState<Record<number, number>>({})
+  const [busqueda, setBusqueda] = useState('')
+  const [filtroCategoria, setFiltroCategoria] = useState('')
+  const [filtroMarca, setFiltroMarca] = useState('')
+  const [notas, setNotas] = useState<string>(() => localStorage.getItem(NOTAS_KEY) ?? '')
   const [cargando, setCargando] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [nuevoTexto, setNuevoTexto] = useState('')
-  const [agregando, setAgregando] = useState(false)
-  const [pedidoAEliminar, setPedidoAEliminar] = useState<Pedido | null>(null)
-  const [eliminando, setEliminando] = useState(false)
-  const [confirmandoLimpiar, setConfirmandoLimpiar] = useState(false)
-  const [limpiando, setLimpiando] = useState(false)
-
-  const cargarPedidos = async () => {
-    setCargando(true)
-    setError(null)
-    const { data, error: err } = await supabase
-      .from('pedidos_pendientes')
-      .select('*')
-      .order('fecha_registro', { ascending: false })
-
-    if (err) {
-      setError(err.message)
-      setPedidos([])
-    } else {
-      setPedidos(data as Pedido[])
-    }
-    setCargando(false)
-  }
 
   useEffect(() => {
-    cargarPedidos()
+    const fetchAgotados = async () => {
+      setCargando(true)
+      setError(null)
+      const { data, error: err } = await supabase
+        .from('repuestos')
+        .select(`
+          id_repuesto,
+          stock,
+          categorias!inner ( nombre ),
+          modelos:id_modelo_principal ( nombre, marcas ( nombre ) ),
+          atributos
+        `)
+        .lte('stock', 1)
+
+      if (err) {
+        setError(err.message)
+        setRepuestosAgotados([])
+      } else {
+        const ordenados = ((data ?? []) as unknown as RepuestoAgotado[]).sort((a, b) => {
+          const catA = (a.categorias?.nombre ?? '').toLowerCase()
+          const catB = (b.categorias?.nombre ?? '').toLowerCase()
+          if (catA !== catB) return catA.localeCompare(catB, 'es')
+          return a.stock - b.stock
+        })
+        setRepuestosAgotados(ordenados)
+      }
+      setCargando(false)
+    }
+
+    fetchAgotados()
   }, [])
 
-  const handleAgregar = async () => {
-    const texto = nuevoTexto.trim()
-    if (!texto) return
-    setAgregando(true)
-    const { error: err } = await supabase
-      .from('pedidos_pendientes')
-      .insert({ repuesto_texto: texto, estado: 'Pendiente' })
+  useEffect(() => {
+    localStorage.setItem(NOTAS_KEY, notas)
+  }, [notas])
 
-    setAgregando(false)
-    if (err) {
-      alert('Error al agregar: ' + err.message)
-      return
-    }
-    setNuevoTexto('')
-    cargarPedidos()
-  }
+  const categoriasUnicas = useMemo(
+    () =>
+      Array.from(
+        new Set(repuestosAgotados.map((r) => r.categorias?.nombre ?? '').filter(Boolean)),
+      ).sort((a, b) => a.localeCompare(b, 'es')),
+    [repuestosAgotados],
+  )
 
-  const handleCambiarEstado = async (id_pedido: string, estado: string) => {
-    const { error: err } = await supabase
-      .from('pedidos_pendientes')
-      .update({ estado })
-      .eq('id_pedido', id_pedido)
+  const marcasUnicas = useMemo(
+    () =>
+      Array.from(
+        new Set(repuestosAgotados.map((r) => r.modelos?.marcas?.nombre ?? '').filter(Boolean)),
+      ).sort((a, b) => a.localeCompare(b, 'es')),
+    [repuestosAgotados],
+  )
 
-    if (err) {
-      alert('Error al actualizar estado: ' + err.message)
-      return
-    }
-    setPedidos((prev) =>
-      prev.map((p) => (p.id_pedido === id_pedido ? { ...p, estado } : p)),
+  const filtrados = useMemo(() => {
+    const term = busqueda.trim().toLowerCase()
+    return repuestosAgotados.filter((r) => {
+      const categoria = r.categorias?.nombre ?? ''
+      const marca = r.modelos?.marcas?.nombre ?? ''
+      const modelo = r.modelos?.nombre ?? ''
+
+      if (term && ![categoria, marca, modelo].join(' ').toLowerCase().includes(term)) return false
+      if (filtroCategoria && categoria !== filtroCategoria) return false
+      if (filtroMarca && marca !== filtroMarca) return false
+
+      return true
+    })
+  }, [repuestosAgotados, busqueda, filtroCategoria, filtroMarca])
+
+  const generarOrdenPDF = () => {
+    const filas = repuestosAgotados
+      .filter((r) => (cantidadesPedido[r.id_repuesto] ?? 0) > 0)
+      .map((r) => ({
+        categoria: r.categorias?.nombre ?? '—',
+        marca: r.modelos?.marcas?.nombre ?? '—',
+        detalle: detalleDe(r),
+        cantidad: cantidadesPedido[r.id_repuesto] ?? 0,
+      }))
+
+    const doc = new jsPDF()
+
+    doc.setFontSize(16)
+    doc.setFont('helvetica', 'bold')
+    doc.text('ORDEN DE COMPRA - STOCK', doc.internal.pageSize.width / 2, 22, { align: 'center' })
+
+    doc.setFontSize(9)
+    doc.setFont('helvetica', 'normal')
+    doc.setTextColor(100)
+    doc.text(
+      `Generado: ${new Date().toLocaleDateString('es-PE', {
+        year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit',
+      })}`,
+      doc.internal.pageSize.width / 2,
+      30,
+      { align: 'center' },
     )
-  }
+    doc.setTextColor(0)
 
-  const handleLimpiarCompletados = async () => {
-    setLimpiando(true)
-    const { error: err } = await supabase
-      .from('pedidos_pendientes')
-      .delete()
-      .eq('estado', 'Comprado')
+    let startY = 40
 
-    setLimpiando(false)
-    setConfirmandoLimpiar(false)
-    if (err) {
-      alert('Error al limpiar: ' + err.message)
-      return
+    // Paso A: tabla con los ítems con cantidad a pedir.
+    if (filas.length > 0) {
+      autoTable(doc, {
+        startY,
+        head: [['CATEGORÍA', 'MARCA', 'DETALLE', 'CANT. A PEDIR']],
+        body: filas.map((f) => [f.categoria, f.marca, f.detalle, f.cantidad.toString()]),
+        theme: 'grid',
+        headStyles: { fillColor: [30, 64, 175], halign: 'center' },
+        styles: { valign: 'middle', fontSize: 9 },
+        columnStyles: {
+          0: { cellWidth: 38 },
+          1: { cellWidth: 30 },
+          2: { cellWidth: 'auto' },
+          3: { halign: 'center', cellWidth: 30 },
+        },
+        margin: { left: 10, right: 10 },
+      })
+      startY = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 12
     }
-    setPedidos((prev) => prev.filter((p) => p.estado !== 'Comprado'))
-  }
 
-  const handleEliminar = async () => {
-    if (!pedidoAEliminar) return
-    setEliminando(true)
-    const { error: err } = await supabase
-      .from('pedidos_pendientes')
-      .delete()
-      .eq('id_pedido', pedidoAEliminar.id_pedido)
-
-    setEliminando(false)
-    setPedidoAEliminar(null)
-    if (err) {
-      alert('Error al eliminar: ' + err.message)
-      return
+    // Paso B: notas manuales.
+    if (notas.trim()) {
+      doc.setFontSize(11)
+      doc.setFont('helvetica', 'bold')
+      doc.text('PEDIDOS ADICIONALES (MANUALES)', 14, startY)
+      doc.setFontSize(9)
+      doc.setFont('helvetica', 'normal')
+      const lineas = doc.splitTextToSize(notas.trim(), doc.internal.pageSize.width - 28)
+      doc.text(lineas, 14, startY + 7)
     }
-    setPedidos((prev) => prev.filter((p) => p.id_pedido !== pedidoAEliminar.id_pedido))
+
+    doc.save('Orden_Compra_Stock.pdf')
   }
 
   return (
     <section>
-      <h2 className="text-2xl font-semibold text-slate-800 mb-4">Pedidos Pendientes</h2>
-
-      <div className="flex items-center gap-3 mb-6">
-        <input
-          type="text"
-          placeholder="Nombre del repuesto *"
-          value={nuevoTexto}
-          onChange={(e) => setNuevoTexto(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter') handleAgregar() }}
-          className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-        />
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-4">
+        <h2 className="text-2xl font-semibold text-slate-800">Punto de Reorden Automático</h2>
         <button
-          onClick={handleAgregar}
-          disabled={agregando || !nuevoTexto.trim()}
-          className="rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-50 transition-colors shrink-0 cursor-pointer"
+          onClick={generarOrdenPDF}
+          className="flex items-center gap-2 rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 transition-colors cursor-pointer"
         >
-          {agregando ? 'Agregando…' : 'Agregar'}
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+          </svg>
+          Descargar Orden de Compra
         </button>
-        {isAdmin && (
-          <button
-            onClick={() => setConfirmandoLimpiar(true)}
-            className="rounded-lg bg-red-100 text-red-700 border border-red-300 px-4 py-2 text-sm font-semibold hover:bg-red-200 transition-colors shrink-0 cursor-pointer"
-          >
-            Limpiar Completados
-          </button>
-        )}
       </div>
 
-      {cargando ? (
-        <div className="flex items-center justify-center py-12">
-          <div className="flex flex-col items-center gap-3 text-slate-500">
-            <svg className="animate-spin h-8 w-8" viewBox="0 0 24 24" fill="none">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-            </svg>
-            <span className="text-sm">Cargando pedidos…</span>
-          </div>
-        </div>
-      ) : error ? (
-        <div className="bg-red-50 border border-red-200 text-red-700 rounded-lg p-4 text-sm">
-          Error al cargar los datos: {error}
-        </div>
-      ) : pedidos.length === 0 ? (
-        <div className="text-center py-12 text-slate-500 text-sm">
-          No hay pedidos pendientes.
-        </div>
-      ) : (
-        <div className="overflow-x-auto rounded-lg border border-slate-200 shadow-sm">
-          <table className="min-w-full text-sm">
-            <colgroup>
-              <col />
-              <col className="w-[140px]" />
-              <col className="w-[180px]" />
-              {isAdmin && <col className="w-[100px]" />}
-            </colgroup>
-            <thead>
-              <tr className="bg-slate-100 text-slate-600 uppercase text-xs tracking-wider">
-                <th className="text-left px-4 py-3 font-semibold">Repuesto</th>
-                <th className="text-left px-4 py-3 font-semibold">Estado</th>
-                <th className="text-left px-4 py-3 font-semibold">Fecha</th>
-                {isAdmin && <th className="text-center px-4 py-3 font-semibold">Acción</th>}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-200">
-              {pedidos.map((p) => (
-                <tr key={p.id_pedido} className="hover:bg-slate-50 transition-colors">
-                  <td className="px-4 py-3 text-slate-700 font-medium">{p.repuesto_texto}</td>
-                  <td className="px-4 py-3">
-                    {isAdmin ? (
-                      <select
-                        value={p.estado}
-                        onChange={(e) => handleCambiarEstado(p.id_pedido, e.target.value)}
-                        className="rounded-lg border border-slate-300 px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 w-full"
-                      >
-                        {ESTADOS.map((est) => (
-                          <option key={est} value={est}>{est}</option>
-                        ))}
-                      </select>
-                    ) : (
-                      <span
-                        className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-semibold ${
-                          p.estado === 'Pendiente'
-                            ? 'bg-yellow-100 text-yellow-800'
-                            : p.estado === 'Comprado'
-                              ? 'bg-green-100 text-green-800'
-                              : 'bg-blue-100 text-blue-800'
-                        }`}
-                      >
-                        {p.estado}
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-slate-500 text-xs">
-                    {new Date(p.fecha_registro).toLocaleDateString('es-PE', {
-                      year: 'numeric',
-                      month: 'short',
-                      day: 'numeric',
-                      hour: '2-digit',
-                      minute: '2-digit',
-                    })}
-                  </td>
-                  {isAdmin && (
-                    <td className="px-4 py-3 text-center">
-                      <button
-                        onClick={() => setPedidoAEliminar(p)}
-                        className="text-red-500 hover:text-red-700 hover:bg-red-50 px-2 py-1 rounded-md text-xs font-semibold transition-colors cursor-pointer"
-                        title="Eliminar"
-                      >
-                        🗑 Eliminar
-                      </button>
-                    </td>
-                  )}
-                </tr>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="lg:col-span-2 space-y-3">
+          <div className="flex flex-col md:flex-row gap-3 mb-4">
+            <input
+              type="text"
+              placeholder="Buscar por categoría, marca o modelo…"
+              value={busqueda}
+              onChange={(e) => setBusqueda(e.target.value)}
+              className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <select
+              value={filtroCategoria}
+              onChange={(e) => setFiltroCategoria(e.target.value)}
+              className="rounded-lg border border-slate-300 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="">Todas las categorías</option>
+              {categoriasUnicas.map((c) => (
+                <option key={c} value={c}>{c}</option>
               ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+            </select>
+            <select
+              value={filtroMarca}
+              onChange={(e) => setFiltroMarca(e.target.value)}
+              className="rounded-lg border border-slate-300 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="">Todas las marcas</option>
+              {marcasUnicas.map((m) => (
+                <option key={m} value={m}>{m}</option>
+              ))}
+            </select>
+          </div>
 
-      {pedidoAEliminar && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center px-4">
-          <div className="bg-white rounded-lg shadow-xl p-6 max-w-sm w-full">
-            <h3 className="text-lg font-semibold text-slate-800">¿Eliminar pedido?</h3>
-            <p className="text-sm text-slate-500 mt-2">
-              Esta acción no se puede deshacer. El pedido "{pedidoAEliminar.repuesto_texto}" será eliminado permanentemente.
-            </p>
-            <div className="flex justify-end gap-3 mt-6">
-              <button
-                onClick={() => setPedidoAEliminar(null)}
-                disabled={eliminando}
-                className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors cursor-pointer"
-              >
-                Cancelar
-              </button>
-              <button
-                onClick={handleEliminar}
-                disabled={eliminando}
-                className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50 transition-colors cursor-pointer"
-              >
-                {eliminando ? 'Eliminando…' : 'Eliminar'}
-              </button>
+          {cargando ? (
+            <div className="flex items-center justify-center py-12">
+              <div className="flex flex-col items-center gap-3 text-slate-500">
+                <svg className="animate-spin h-8 w-8" viewBox="0 0 24 24" fill="none">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+                <span className="text-sm">Cargando repuestos…</span>
+              </div>
             </div>
+          ) : error ? (
+            <div className="bg-red-50 border border-red-200 text-red-700 rounded-lg p-4 text-sm">
+              Error al cargar los datos: {error}
+            </div>
+          ) : filtrados.length === 0 ? (
+            <div className="text-center py-12 text-slate-500 text-sm">
+              {busqueda.trim() ? 'No se encontraron repuestos con ese criterio.' : 'No hay repuestos con stock agotado.'}
+            </div>
+          ) : (
+            <div className="max-h-[60vh] overflow-y-auto overflow-x-auto border rounded-lg">
+              <table className="min-w-full text-sm">
+                <thead className="sticky top-0 z-10 bg-slate-100">
+                  <tr className="text-slate-600 uppercase text-xs tracking-wider">
+                    <th className="text-left px-4 py-3 font-semibold">Categoría y Marca</th>
+                    <th className="text-left px-4 py-3 font-semibold">Detalle del Producto</th>
+                    <th className="text-center px-4 py-3 font-semibold">Stock Actual</th>
+                    <th className="text-center px-4 py-3 font-semibold">Cantidad a Pedir</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200 bg-white">
+                  {filtrados.map((r) => (
+                    <tr key={r.id_repuesto} className="hover:bg-slate-50 transition-colors">
+                      <td className="px-4 py-3 text-slate-700">
+                        <span className="font-medium">{r.categorias?.nombre ?? '—'}</span>
+                        <span className="block text-xs text-slate-500">{r.modelos?.marcas?.nombre ?? '—'}</span>
+                      </td>
+                      <td className="px-4 py-3 text-slate-700">{detalleDe(r)}</td>
+                      <td className="px-4 py-3 text-center">
+                        <span
+                          className={`inline-block min-w-[2rem] rounded-full px-2.5 py-0.5 text-xs font-semibold ${
+                            r.stock === 0 ? 'bg-red-100 text-red-800' : 'bg-orange-100 text-orange-800'
+                          }`}
+                        >
+                          {r.stock}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        <input
+                          type="number"
+                          min={0}
+                          value={cantidadesPedido[r.id_repuesto] || ''}
+                          onChange={(e) =>
+                            setCantidadesPedido((prev) => ({
+                              ...prev,
+                              [r.id_repuesto]: Number(e.target.value),
+                            }))
+                          }
+                          className="w-20 rounded-lg border border-slate-300 px-2 py-1.5 text-sm text-center focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
+        <div className="lg:col-span-1">
+          <div className="rounded-lg border border-slate-200 bg-white p-4">
+            <label htmlFor="notas" className="block text-sm font-semibold text-slate-700 mb-1">
+              Bloc de Notas
+            </label>
+            <p className="text-xs text-slate-500 mb-2">Anota aquí pedidos manuales adicionales.</p>
+            <textarea
+              id="notas"
+              value={notas}
+              onChange={(e) => setNotas(e.target.value)}
+              placeholder="Ej: 5 pantallas iPhone 11, 3 baterías Samsung…"
+              className="w-full min-h-[45vh] rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-y"
+            />
           </div>
         </div>
-      )}
-      {confirmandoLimpiar && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center px-4">
-          <div className="bg-white rounded-lg shadow-xl p-6 max-w-sm w-full">
-            <h3 className="text-lg font-semibold text-slate-800">¿Limpiar completados?</h3>
-            <p className="text-sm text-slate-500 mt-2">
-              Esta acción no se puede deshacer. Se eliminarán todos los pedidos con estado "Comprado".
-            </p>
-            <div className="flex justify-end gap-3 mt-6">
-              <button
-                onClick={() => setConfirmandoLimpiar(false)}
-                disabled={limpiando}
-                className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors cursor-pointer"
-              >
-                Cancelar
-              </button>
-              <button
-                onClick={handleLimpiarCompletados}
-                disabled={limpiando}
-                className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50 transition-colors cursor-pointer"
-              >
-                {limpiando ? 'Limpiando…' : 'Limpiar'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      </div>
     </section>
   )
 }
